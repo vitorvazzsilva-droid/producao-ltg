@@ -51,3 +51,16 @@ export function linkValido(url: string) {
     return false;
   }
 }
+
+// Link de download direto quando o servico deixa (Drive e Dropbox); nos
+// outros, abre o proprio link.
+export function baixar(url: string) {
+  const d = driveId(url);
+  if (d) return `https://drive.google.com/uc?export=download&id=${d}`;
+  if (/dropbox\.com/.test(url)) {
+    const u = new URL(url);
+    u.searchParams.set("dl", "1");
+    return u.toString();
+  }
+  return url;
+}

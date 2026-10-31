@@ -1,7 +1,7 @@
 "use client";
 
-import { useActionState, useState } from "react";
-import { criarUsuario, novaSenha } from "../acoes";
+import { useActionState, useState, useTransition } from "react";
+import { ativarUsuario, criarUsuario, novaSenha } from "../acoes";
 import { PAPEIS } from "@/lib/fluxo";
 
 type Res = { erro?: string; ok?: { nome: string; login: string; senha: string } } | null;
@@ -79,5 +79,45 @@ export function NovaSenha({ id }: { id: number }) {
         </div>
       )}
     </form>
+  );
+}
+
+// Remover acesso pede um segundo clique em vez de confirm() do navegador.
+export function Acesso({ id, ativo }: { id: number; ativo: boolean }) {
+  const [certeza, setCerteza] = useState(false);
+  const [erro, setErro] = useState("");
+  const [pend, iniciar] = useTransition();
+  const enviar = () =>
+    iniciar(async () => {
+      const f = new FormData();
+      f.set("id", String(id));
+      const r = (await ativarUsuario(f)) as { erro?: string } | undefined;
+      setErro(r?.erro ?? "");
+      setCerteza(false);
+    });
+  if (!ativo)
+    return (
+      <button className="lk" disabled={pend} onClick={enviar}>
+        devolver acesso
+      </button>
+    );
+  return (
+    <span className="inline">
+      {certeza ? (
+        <>
+          <button className="btn perigo mini" disabled={pend} onClick={enviar}>
+            Confirmar remoção
+          </button>
+          <button className="lk lk-x" onClick={() => setCerteza(false)}>
+            cancelar
+          </button>
+        </>
+      ) : (
+        <button className="lk lk-x" onClick={() => setCerteza(true)}>
+          remover acesso
+        </button>
+      )}
+      {erro && <span className="erro">{erro}</span>}
+    </span>
   );
 }

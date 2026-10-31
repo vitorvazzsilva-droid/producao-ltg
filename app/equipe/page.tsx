@@ -2,9 +2,9 @@ import { redirect } from "next/navigation";
 import { eu as quemSou } from "@/lib/sessao";
 import { usuarios, quando } from "@/lib/dados";
 import { PAPEIS } from "@/lib/fluxo";
-import { ativarUsuario, mudarPapel } from "../acoes";
-import { NovoMembro, NovaSenha } from "./membro";
-import { Form } from "../form";
+import { mudarPapel } from "../acoes";
+import { NovoMembro, NovaSenha, Acesso } from "./membro";
+import { iniciais } from "@/lib/iniciais";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Equipe" };
@@ -29,11 +29,12 @@ export default async function Equipe() {
         <ul className="membros">
           {gente.map((u) => (
             <li key={u.id} className={u.ativo ? "" : "inativo"}>
-              <span className="avatar">{u.nome.slice(0, 3).toUpperCase()}</span>
+              <span className="avatar">{iniciais(u.nome)}</span>
               <div className="membro-nome">
                 <b>{u.nome}</b>
                 <span className="meta">
-                  usuário <span className="mono">{u.login}</span> · desde {quando(u.criado_em).split(" ·")[0]}
+                  {!u.ativo && <b className="vermelho">sem acesso · </b>}
+                  usuário <span className="mono">@{u.login}</span> · desde {quando(u.criado_em).split(" ·")[0]}
                 </span>
               </div>
               {u.id === eu.id ? (
@@ -52,10 +53,7 @@ export default async function Equipe() {
                     <button className="lk">salvar</button>
                   </form>
                   <NovaSenha id={u.id} />
-                  <Form acao={ativarUsuario} className="inline">
-                    <input type="hidden" name="id" value={u.id} />
-                    <button className={"lk" + (u.ativo ? " lk-x" : "")}>{u.ativo ? "desativar" : "reativar"}</button>
-                  </Form>
+                  <Acesso id={u.id} ativo={!!u.ativo} />
                 </>
               )}
             </li>

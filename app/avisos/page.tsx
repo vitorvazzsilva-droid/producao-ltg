@@ -29,7 +29,7 @@ export default async function Avisos() {
         <ul className="avisos">
           {lista.map((a) => (
             <li key={a.id} className={a.lido ? "" : "novo"}>
-              <Link href={a.producao_id ? `/producao/${a.producao_id}` : "#"}>
+              <Link href={`/avisos/${a.id}`} prefetch={false}>
                 <span>{a.texto}</span>
                 <span className="meta">{quando(a.criado_em)}</span>
               </Link>

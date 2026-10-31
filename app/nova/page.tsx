@@ -62,6 +62,10 @@ export default async function Nova() {
           <input name="referencia_url" type="url" placeholder="https://…" />
         </label>
         <label>
+          Link de print/imagem de referência <small>opcional</small>
+          <input name="referencia_img" type="url" placeholder="https://… (.jpg, .png)" />
+        </label>
+        <label>
           Hook
           <input name="hook" placeholder="A frase dos primeiros 3 segundos" />
         </label>

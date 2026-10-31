@@ -12,6 +12,8 @@ export type Producao = {
   copy: string | null;
   briefing: string | null;
   referencia_url: string | null;
+  referencia_img: string | null;
+  ajuste_de: string | null;
   prazo: string | null;
   status: string;
   copy_id: number | null;

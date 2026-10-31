@@ -150,5 +150,17 @@ export async function initDb() {
     `CREATE INDEX IF NOT EXISTS idx_com_prod ON comentarios(producao_id)`,
     `CREATE INDEX IF NOT EXISTS idx_aviso_user ON avisos(usuario_id, lido)`,
   ]);
+  // Colunas novas. ADD COLUMN falha se ja existe — o catch vazio e isso.
+  for (const col of [
+    // quem precisa corrigir quando a producao esta em "ajustes pedidos":
+    // 'editor' (revisao reprovou o video) ou 'copy' (editor pediu mudanca na copy)
+    "ajuste_de TEXT",
+    // print/imagem de referencia (link por enquanto; upload quando o R2 ligar)
+    "referencia_img TEXT",
+  ]) {
+    try {
+      await db.execute(`ALTER TABLE producoes ADD COLUMN ${col}`);
+    } catch {}
+  }
   pronto = true;
 }

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import type { Eu } from "@/lib/sessao";
 import { PAPEIS } from "@/lib/fluxo";
+import { iniciais } from "@/lib/iniciais";
 import { Icone, Logo } from "./icones";
 import { Busca } from "./busca";
 import { sair } from "./acoes";
@@ -78,7 +79,7 @@ export function Shell({
         </nav>
 
         <div className="eu">
-          <span className="avatar">{eu.nome.slice(0, 3).toUpperCase()}</span>
+          <span className="avatar">{iniciais(eu.nome)}</span>
           <Link href="/conta" className="eu-nome">
             <b>{eu.nome}</b>
             <span>{PAPEIS[eu.papel]}</span>

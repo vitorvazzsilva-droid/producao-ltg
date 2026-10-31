@@ -11,7 +11,7 @@ const DICA: Record<string, string> = {
   copy: "Escreva a copy e mande pro editor",
   pronta: "Pegue pra editar",
   edicao: "Suba o link da versão e mande pra revisão",
-  ajustes: "Faça os ajustes e mande a versão nova",
+  ajustes: "Faça o ajuste pedido",
   revisao: "Assista e aprove ou peça ajustes",
   aprovado: "Suba no tráfego",
 };
@@ -21,7 +21,7 @@ export default async function Inicio() {
   const hoje = hojeSP();
   const [todas, cont] = await Promise.all([producoes(), contagens()]);
   const minhas = todas.filter((p) => eMinhaVez(p, eu));
-  const atrasadas = todas.filter((p) => p.prazo && p.prazo < hoje && ["copy", "pronta", "edicao", "revisao", "ajustes"].includes(p.status));
+  const atrasadas = todas.filter((p) => p.prazo && p.prazo <= hoje && ["copy", "pronta", "edicao", "revisao", "ajustes"].includes(p.status));
   const recentes = todas.filter((p) => p.status === "aprovado" || p.status === "no_ar").slice(0, 6);
 
   // Agrupa a vez por etapa: o editor ve "pra pegar" separado de "em edicao".
@@ -41,7 +41,7 @@ export default async function Inicio() {
 
       <div className="kpis">
         {(["copy", "pronta", "edicao", "revisao", "ajustes", "aprovado"] as Status[]).map((s) => (
-          <Link key={s} href={`/esteira#col-${s}`} className={`kpi st-${s}`}>
+          <Link key={s} href={`/esteira?etapa=${s}`} className={`kpi st-${s}`}>
             <span className="kpi-n">{cont[s] ?? 0}</span>
             <span className="kpi-t">{STATUS[s].rotulo}</span>
           </Link>
@@ -75,7 +75,7 @@ export default async function Inicio() {
       {atrasadas.length > 0 && (
         <section className="sec">
           <div className="sec-hd">
-            <h2 className="vermelho">Prazo estourado</h2>
+            <h2 className="vermelho">Prazo vencido ou pra hoje</h2>
             <span className="sec-n">{atrasadas.length}</span>
           </div>
           <div className="cts">

@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { COOKIE, criarSessao, hashSenha, novoSal, senhaAleatoria } from "@/lib/auth";
 import { eu, preparar, type Eu } from "@/lib/sessao";
-import { PASSOS, STATUS, passosPara, type Papel, type Status } from "@/lib/fluxo";
+import { RESULTADOS, STATUS, passoDoArrasto, passosPara, podeEditarCopy, type Papel, type Status } from "@/lib/fluxo";
 import { linkValido } from "@/lib/midia";
 
 const txt = (f: FormData, k: string) => String(f.get(k) ?? "").trim();
@@ -70,13 +70,24 @@ async function registrar(producao: number, usuario: number | null, texto: string
 async function carregar(id: number) {
   const r = await db.execute({ sql: "SELECT * FROM producoes WHERE id = ?", args: [id] });
   const p = r.rows[0] as
-    | { id: number; codigo: string; status: Status; copy_id: number | null; editor_id: number | null }
+    | { id: number; codigo: string; status: Status; copy_id: number | null; editor_id: number | null; ajuste_de: string | null }
     | undefined;
   if (!p) throw new Error("produção não existe");
   return p;
 }
 
-const podeEditarTexto = (e: Eu) => e.papel === "admin" || e.papel === "copy";
+const podeEditarFicha = (e: Eu) => e.papel === "admin" || e.papel === "copy";
+
+// @login nos comentarios: devolve os ids de quem foi marcado.
+async function mencionados(texto: string) {
+  const logins = [...new Set([...texto.matchAll(/@([a-z0-9.]+)/gi)].map((m) => m[1].toLowerCase()))];
+  if (!logins.length) return [];
+  const r = await db.execute({
+    sql: `SELECT id FROM usuarios WHERE ativo = 1 AND login IN (${logins.map(() => "?").join(",")})`,
+    args: logins,
+  });
+  return r.rows.map((l) => Number(l.id));
+}
 
 // ---------- producao ----------
 
@@ -97,14 +108,15 @@ export async function criarProducao(f: FormData) {
   const angulo = txt(f, "angulo");
   if (!angulo) return { erro: "ângulo obrigatório" };
   const ref = txt(f, "referencia_url");
+  const img = txt(f, "referencia_img");
   const n = await db.execute("SELECT COALESCE(MAX(id), 0) + 1 AS n FROM producoes");
   const codigo = `LTG_${String(n.rows[0].n).padStart(3, "0")}_${slugAngulo(angulo)}`;
   const copyId = Number(f.get("copy_id")) || (e.papel === "copy" ? e.id : null);
   const editorId = Number(f.get("editor_id")) || null;
 
   const r = await db.execute({
-    sql: `INSERT INTO producoes (codigo, angulo, lado, tipo, formato, hook, copy, briefing, referencia_url, prazo, copy_id, editor_id, criado_por)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO producoes (codigo, angulo, lado, tipo, formato, hook, copy, briefing, referencia_url, referencia_img, prazo, copy_id, editor_id, criado_por)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       codigo,
       angulo,
@@ -115,6 +127,7 @@ export async function criarProducao(f: FormData) {
       ouNulo(txt(f, "copy")),
       ouNulo(txt(f, "briefing")),
       ref && linkValido(ref) ? ref : null,
+      img && linkValido(img) ? img : null,
       ouNulo(txt(f, "prazo")),
       copyId,
       editorId,
@@ -130,7 +143,10 @@ export async function criarProducao(f: FormData) {
 export async function salvarCopy(f: FormData) {
   const e = await eu();
   const id = Number(f.get("id"));
-  if (!podeEditarTexto(e)) return { erro: "sem permissão" };
+  const p = await carregar(id);
+  if (!podeEditarCopy(p, e.papel)) {
+    return { erro: "A copy só pode ser editada em “Em copy” ou “Ajustes pedidos”." };
+  }
   await db.execute({
     sql: "UPDATE producoes SET hook = ?, copy = ?, briefing = ?, atualizado_em = datetime('now') WHERE id = ?",
     args: [ouNulo(txt(f, "hook")), ouNulo(txt(f, "copy")), ouNulo(txt(f, "briefing")), id],
@@ -141,13 +157,14 @@ export async function salvarCopy(f: FormData) {
 export async function salvarFicha(f: FormData) {
   const e = await eu();
   const id = Number(f.get("id"));
-  if (!podeEditarTexto(e)) return { erro: "sem permissão" };
+  if (!podeEditarFicha(e)) return { erro: "sem permissão" };
   const ref = txt(f, "referencia_url");
+  const img = txt(f, "referencia_img");
   const antes = await carregar(id);
   const copyId = Number(f.get("copy_id")) || null;
   const editorId = Number(f.get("editor_id")) || null;
   await db.execute({
-    sql: `UPDATE producoes SET angulo = ?, lado = ?, tipo = ?, formato = ?, referencia_url = ?, prazo = ?,
+    sql: `UPDATE producoes SET angulo = ?, lado = ?, tipo = ?, formato = ?, referencia_url = ?, referencia_img = ?, prazo = ?,
             copy_id = ?, editor_id = ?, atualizado_em = datetime('now') WHERE id = ?`,
     args: [
       txt(f, "angulo") || "criativo",
@@ -155,6 +172,7 @@ export async function salvarFicha(f: FormData) {
       txt(f, "tipo") || "anuncio",
       ouNulo(txt(f, "formato")),
       ref && linkValido(ref) ? ref : null,
+      img && linkValido(img) ? img : null,
       ouNulo(txt(f, "prazo")),
       copyId,
       editorId,
@@ -173,56 +191,74 @@ export async function salvarFicha(f: FormData) {
 export async function mudarEtapa(f: FormData) {
   const e = await eu();
   const id = Number(f.get("id"));
-  const passo = PASSOS.find((p) => p.id === f.get("passo"));
   const p = await carregar(id);
-  if (!passo || !passosPara(p.status, e.papel).some((x) => x.id === passo.id)) {
-    return { erro: "essa ação não vale nessa etapa" };
+  // Botao manda o id do passo; arrastar no quadro manda so a coluna de destino.
+  const destino = String(f.get("para") ?? "") as Status;
+  const passo =
+    f.get("passo") === "mover" || (!f.get("passo") && destino)
+      ? passoDoArrasto(p, e.papel, destino)
+      : passosPara(p, e.papel).find((x) => x.id === f.get("passo"));
+  if (!passo || (passo.id !== "mover" && !passosPara(p, e.papel).some((x) => x.id === passo.id))) {
+    return { erro: destino ? `Você não pode mover de “${STATUS[p.status].rotulo}” pra “${STATUS[destino]?.rotulo ?? destino}”.` : "Essa ação não vale nessa etapa." };
   }
   const nota = txt(f, "texto");
-  if (passo.pedeTexto && !nota) return { erro: "escreva o que precisa mudar" };
+  if (passo.pedeTexto && !nota) return { erro: "Escreva o que precisa mudar.", pedeTexto: passo.pedeTexto };
   if (passo.pedeVersao) {
     const v = await db.execute({ sql: "SELECT COUNT(*) AS n FROM materiais WHERE producao_id = ? AND tipo = 'versao'", args: [id] });
-    if (!Number(v.rows[0].n)) return { erro: "suba o link da versão editada antes" };
+    if (!Number(v.rows[0].n)) return { erro: "Suba a versão editada antes de mandar pra revisão." };
   }
 
   // Quem pega a edicao vira o editor da producao; quem manda a copy vira o
   // copy, se ainda nao tinha.
   const editorId = passo.id === "pegar" && !p.editor_id && e.papel === "editor" ? e.id : p.editor_id;
   const copyId = passo.id === "mandar" && !p.copy_id && e.papel === "copy" ? e.id : p.copy_id;
+  // Copy ajustada volta pra edicao se ja tem editor; sem editor, pra fila.
+  const para: Status = passo.id === "copy_ajustada" && !editorId ? "pronta" : passo.para;
+  const ajuste = para === "ajustes" ? passo.ajusteDe ?? "editor" : null;
 
   await db.execute({
-    sql: `UPDATE producoes SET status = ?, editor_id = ?, copy_id = ?,
+    sql: `UPDATE producoes SET status = ?, editor_id = ?, copy_id = ?, ajuste_de = ?,
             aprovado_em = CASE WHEN ? = 'aprovado' THEN datetime('now') ELSE aprovado_em END,
             no_ar_em = CASE WHEN ? = 'no_ar' THEN datetime('now') ELSE no_ar_em END,
             resultado = CASE WHEN ? = 'no_ar' THEN COALESCE(resultado, 'testando') ELSE resultado END,
             atualizado_em = datetime('now')
           WHERE id = ?`,
-    args: [passo.para, editorId, copyId, passo.para, passo.para, passo.para, id],
+    args: [para, editorId, copyId, ajuste, para, para, para, id],
   });
 
-  if (nota) await registrar(id, e.id, nota, passo.id === "ajustar" ? "ajuste" : "comentario");
-  await registrar(id, e.id, `moveu para “${STATUS[passo.para].rotulo}”`);
+  if (nota) await registrar(id, e.id, nota, ajuste ? "ajuste" : "comentario");
+  await registrar(id, e.id, `moveu de “${STATUS[p.status].rotulo}” para “${STATUS[para].rotulo}”`);
 
   const cod = p.codigo;
   const avisoPor: Partial<Record<Status, () => Promise<void>>> = {
     pronta: async () =>
-      avisar(editorId ? [editorId] : await idsDoPapel("editor"), id, `${cod}: copy pronta, pode editar`, e.id),
+      avisar(editorId ? [editorId] : await idsDoPapel("editor"), id, `${e.nome} passou ${cod} pra edição`, e.id),
+    edicao: async () =>
+      passo.id === "copy_ajustada" ? avisar([editorId], id, `${e.nome} ajustou a copy de ${cod} — pode seguir`, e.id) : undefined,
     revisao: async () =>
-      avisar([copyId, ...(await idsDoPapel("admin"))], id, `${cod}: versão nova pra revisar`, e.id),
-    ajustes: async () => avisar([editorId], id, `${cod}: ajustes pedidos por ${e.nome}`, e.id),
+      avisar([copyId, ...(await idsDoPapel("admin"))], id, `${e.nome} mandou ${cod} pra revisão`, e.id),
+    ajustes: async () =>
+      avisar(
+        [ajuste === "copy" ? copyId : editorId],
+        id,
+        `${e.nome} pediu ajuste ${ajuste === "copy" ? "na copy" : "no vídeo"} de ${cod}`,
+        e.id
+      ),
     aprovado: async () =>
-      avisar([editorId, ...(await idsDoPapel("trafego"))], id, `${cod} aprovado — pronto pro tráfego`, e.id),
+      avisar([copyId, editorId, ...(await idsDoPapel("trafego"))], id, `${cod} foi aprovado por ${e.nome}`, e.id),
     no_ar: async () => avisar([copyId, editorId], id, `${cod} subiu no tráfego`, e.id),
   };
-  await avisoPor[passo.para]?.();
+  await avisoPor[para]?.();
 
   revalidatePath(`/producao/${id}`);
+  revalidatePath("/esteira");
+  return { ok: true, para };
 }
 
 export async function marcarResultado(f: FormData) {
   const e = await eu();
   const id = Number(f.get("id"));
-  if (e.papel !== "admin" && e.papel !== "trafego" && e.papel !== "copy") return { erro: "sem permissão" };
+  if (e.papel !== "admin" && e.papel !== "trafego") return { erro: "Só o tráfego marca o resultado." };
   const resultado = txt(f, "resultado");
   if (!["testando", "vencedor", "perdedor"].includes(resultado)) return { erro: "resultado inválido" };
   const nota = ouNulo(txt(f, "resultado_nota"));
@@ -230,7 +266,9 @@ export async function marcarResultado(f: FormData) {
     sql: "UPDATE producoes SET resultado = ?, resultado_nota = ?, atualizado_em = datetime('now') WHERE id = ?",
     args: [resultado, nota, id],
   });
-  await registrar(id, e.id, `marcou o resultado: ${resultado}${nota ? ` — ${nota}` : ""}`);
+  const p = await carregar(id);
+  await registrar(id, e.id, `marcou o resultado: ${RESULTADOS[resultado as keyof typeof RESULTADOS]}${nota ? ` — ${nota}` : ""}`);
+  if (resultado === "vencedor") await avisar([p.copy_id, p.editor_id], id, `${p.codigo} virou VENCEDOR no tráfego`, e.id);
   revalidatePath(`/producao/${id}`);
 }
 
@@ -238,6 +276,7 @@ export async function addMaterial(f: FormData) {
   const e = await eu();
   const id = Number(f.get("id"));
   const tipo = f.get("tipo") === "bruto" ? "bruto" : "versao";
+  if (tipo === "versao" && e.papel !== "editor" && e.papel !== "admin") return { erro: "Só o editor sobe versão." };
   const url = txt(f, "url");
   if (!linkValido(url)) return { erro: "link inválido" };
   const p = await carregar(id);
@@ -274,7 +313,14 @@ export async function comentar(f: FormData) {
   if (!texto) return;
   const p = await carregar(id);
   await registrar(id, e.id, texto.slice(0, 4000), "comentario");
-  await avisar([p.copy_id, p.editor_id], id, `${e.nome} comentou em ${p.codigo}`, e.id);
+  const marcados = await mencionados(texto);
+  await avisar(marcados, id, `${e.nome} mencionou você em ${p.codigo}`, e.id);
+  await avisar(
+    [p.copy_id, p.editor_id].filter((x) => !marcados.includes(x as number)),
+    id,
+    `${e.nome} comentou em ${p.codigo}`,
+    e.id
+  );
   revalidatePath(`/producao/${id}`);
 }
 
@@ -346,7 +392,7 @@ export async function trocarMinhaSenha(_: unknown, f: FormData) {
 export async function ativarUsuario(f: FormData) {
   const e = await soAdmin();
   const id = Number(f.get("id"));
-  if (id === e.id) return { erro: "você não pode se desativar" };
+  if (id === e.id) return { erro: "Você não pode tirar o seu próprio acesso." };
   await db.execute({ sql: "UPDATE usuarios SET ativo = 1 - ativo WHERE id = ?", args: [id] });
   revalidatePath("/equipe");
 }

@@ -2,13 +2,31 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { eu as quemSou } from "@/lib/sessao";
 import { producao, materiais, comentarios, usuarios, quando, hojeSP } from "@/lib/dados";
-import { passosPara, eMinhaVez, LADOS, TIPOS, RESULTADOS, PAPEIS, type Papel } from "@/lib/fluxo";
-import { player } from "@/lib/midia";
-import { addMaterial, comentar, marcarResultado, mudarEtapa, removerMaterial, salvarCopy, salvarFicha } from "../../acoes";
+import { passosPara, eMinhaVez, podeEditarCopy, LADOS, TIPOS, RESULTADOS, PAPEIS, type Papel } from "@/lib/fluxo";
+import { player, baixar } from "@/lib/midia";
+import { addMaterial, marcarResultado, mudarEtapa, removerMaterial, salvarCopy, salvarFicha } from "../../acoes";
 import { Form } from "../../form";
 import { Icone } from "../../icones";
 import { Lado, Pill, Resultado } from "../../pecas";
 import { Copiar } from "./copiar";
+import { Comentar } from "./comentar";
+
+// Realca @usuario dentro do comentario.
+function ComMencao({ texto }: { texto: string }) {
+  return (
+    <>
+      {texto.split(/(@[\w.]+)/g).map((t, i) =>
+        t.startsWith("@") ? (
+          <span key={i} className="mencao">
+            {t}
+          </span>
+        ) : (
+          t
+        )
+      )}
+    </>
+  );
+}
 
 export const dynamic = "force-dynamic";
 
@@ -37,8 +55,13 @@ export default async function Detalhe({ params }: { params: Promise<{ id: string
 
   const versoes = mats.filter((m) => m.tipo === "versao");
   const brutos = mats.filter((m) => m.tipo === "bruto");
-  const passos = passosPara(p.status, eu.papel);
-  const escreve = eu.papel === "admin" || eu.papel === "copy";
+  const passos = passosPara(p, eu.papel);
+  const escreve = podeEditarCopy(p, eu.papel);
+  const fichaEditavel = eu.papel === "admin" || eu.papel === "copy";
+  const sobeVersao = eu.papel === "admin" || eu.papel === "editor";
+  const marcaResultado = eu.papel === "admin" || eu.papel === "trafego";
+  const conversa_ = conversa.filter((c) => c.tipo !== "evento");
+  const historico = conversa.filter((c) => c.tipo === "evento").reverse();
   const minhaVez = eMinhaVez(p, eu);
   const ajustesAbertos = p.status === "ajustes" ? conversa.filter((c) => c.tipo === "ajuste").slice(-1) : [];
   const hoje = hojeSP();
@@ -53,11 +76,30 @@ export default async function Detalhe({ params }: { params: Promise<{ id: string
         <h1 className="mono det-cod">
           {p.codigo} <small>{TIPOS[p.tipo as keyof typeof TIPOS]}</small>
         </h1>
+        <div className="det-resumo">
+          <Lado lado={p.lado} />
+          <span>
+            Ângulo <b>{p.angulo}</b>
+          </span>
+          <span>
+            Copy <b>{p.copy_nome ?? "—"}</b>
+          </span>
+          <span>
+            Editor <b>{p.editor_nome ?? "quem pegar"}</b>
+          </span>
+          {p.prazo && (
+            <span className={p.prazo < hoje && !["aprovado", "no_ar"].includes(p.status) ? "vermelho" : p.prazo === hoje ? "amarelo" : ""}>
+              Prazo <b>{p.prazo === hoje ? "hoje" : `${p.prazo.slice(8, 10)}/${p.prazo.slice(5, 7)}`}</b>
+            </span>
+          )}
+        </div>
       </div>
 
       {ajustesAbertos.map((a) => (
         <div key={a.id} className="alerta-ajuste">
-          <b>Ajustes pedidos por {a.autor}</b>
+          <b>
+            O que precisa mudar {p.ajuste_de === "copy" ? "na copy" : "no vídeo"} — pedido por {a.autor}
+          </b>
           <p>{a.texto}</p>
         </div>
       ))}
@@ -72,7 +114,7 @@ export default async function Detalhe({ params }: { params: Promise<{ id: string
                   <input type="hidden" name="id" value={p.id} />
                   <input type="hidden" name="passo" value={s.id} />
                   <textarea name="texto" rows={4} placeholder={s.pedeTexto} required />
-                  <button className="btn perigo">Enviar pedido de ajuste</button>
+                  <button className="btn perigo">{s.rotulo}</button>
                 </Form>
               </details>
             ) : (
@@ -111,6 +153,9 @@ export default async function Detalhe({ params }: { params: Promise<{ id: string
                       <a href={v.url} target="_blank" rel="noreferrer" className="lk">
                         <Icone n="externo" s={13} /> abrir
                       </a>
+                      <a href={baixar(v.url)} target="_blank" rel="noreferrer" className="lk">
+                        <Icone n="baixar" s={13} /> baixar
+                      </a>
                       <Form acao={removerMaterial} className="inline">
                         <input type="hidden" name="material" value={v.id} />
                         <button className="lk lk-x" title="Tirar esta versão">
@@ -124,7 +169,7 @@ export default async function Detalhe({ params }: { params: Promise<{ id: string
                 ))}
               </div>
             )}
-            {eu.papel !== "trafego" && (
+            {sobeVersao && (
               <Form acao={addMaterial} className="add-link" limpar>
                 <input type="hidden" name="id" value={p.id} />
                 <input type="hidden" name="tipo" value="versao" />
@@ -152,6 +197,9 @@ export default async function Detalhe({ params }: { params: Promise<{ id: string
                       {b.rotulo ?? b.url.replace(/^https?:\/\//, "").slice(0, 48)}
                     </a>
                     <span className="meta">{b.enviado_por_nome}</span>
+                    <a href={baixar(b.url)} target="_blank" rel="noreferrer" className="lk">
+                      baixar
+                    </a>
                     <Form acao={removerMaterial} className="inline">
                       <input type="hidden" name="material" value={b.id} />
                       <button className="lk lk-x">tirar</button>
@@ -200,6 +248,13 @@ export default async function Detalhe({ params }: { params: Promise<{ id: string
               </Form>
             ) : (
               <div className="copy-ler">
+                {eu.papel === "copy" && <p className="trava">A copy fica travada fora de “Em copy” e “Ajustes pedidos”.</p>}
+                {p.briefing && (
+                  <div className="briefing briefing-topo">
+                    <b>Briefing pra edição</b>
+                    <pre>{p.briefing}</pre>
+                  </div>
+                )}
                 {p.hook && <p className="copy-hook">{p.hook}</p>}
                 <pre className="copy-texto">{p.copy ?? "A copy ainda não foi escrita."}</pre>
               </div>
@@ -208,35 +263,43 @@ export default async function Detalhe({ params }: { params: Promise<{ id: string
 
           <section className="bloco">
             <div className="bloco-hd">
-              <h2>Conversa</h2>
-              <span className="bloco-n">{conversa.filter((c) => c.tipo !== "evento").length}</span>
+              <h2>Comentários</h2>
+              <span className="bloco-n">{conversa_.length}</span>
             </div>
+            {conversa_.length === 0 && <p className="dica" style={{ marginBottom: 12 }}>Ninguém comentou ainda.</p>}
             <ol className="conversa">
-              {conversa.map((c) => (
+              {conversa_.map((c) => (
                 <li key={c.id} className={"msg msg-" + c.tipo}>
-                  {c.tipo === "evento" ? (
-                    <span className="evento">
-                      <b>{c.autor ?? "sistema"}</b> {c.texto} · {quando(c.criado_em)}
-                    </span>
-                  ) : (
-                    <>
-                      <div className="msg-hd">
-                        <b>{c.autor}</b>
-                        <span className="meta">{c.papel ? PAPEIS[c.papel as Papel] : ""}</span>
-                        {c.tipo === "ajuste" && <span className="pill st-ajustes">ajuste</span>}
-                        <span className="meta">{quando(c.criado_em)}</span>
-                      </div>
-                      <p>{c.texto}</p>
-                    </>
-                  )}
+                  <div className="msg-hd">
+                    <b>{c.autor}</b>
+                    <span className="meta">{c.papel ? PAPEIS[c.papel as Papel] : ""}</span>
+                    {c.tipo === "ajuste" && <span className="pill st-ajustes">o que precisa mudar</span>}
+                    <span className="meta">{quando(c.criado_em)}</span>
+                  </div>
+                  <p>
+                    <ComMencao texto={c.texto} />
+                  </p>
                 </li>
               ))}
             </ol>
-            <Form acao={comentar} className="form-msg" limpar>
-              <input type="hidden" name="id" value={p.id} />
-              <textarea name="texto" rows={2} placeholder="Escreva pra equipe (ex.: 0:08 corta a respiração)" required />
-              <button className="btn sec-btn">Enviar</button>
-            </Form>
+            <Comentar id={p.id} gente={gente.filter((u) => u.id !== eu.id).map((u) => ({ login: u.login, nome: u.nome, papel: PAPEIS[u.papel as Papel] }))} />
+          </section>
+
+          <section className="bloco">
+            <div className="bloco-hd">
+              <h2>Histórico</h2>
+              <span className="bloco-n">{historico.length}</span>
+            </div>
+            <ol className="historico">
+              {historico.map((c) => (
+                <li key={c.id}>
+                  <span className="meta">{quando(c.criado_em)}</span>
+                  <span>
+                    <b>{c.autor ?? "sistema"}</b> {c.texto}
+                  </span>
+                </li>
+              ))}
+            </ol>
           </section>
         </div>
 
@@ -257,7 +320,13 @@ export default async function Detalhe({ params }: { params: Promise<{ id: string
                 <Icone n="externo" s={14} />
               </a>
             ) : (
-              <p className="dica">Sem referência.</p>
+              !p.referencia_img && <p className="dica">Sem referência.</p>
+            )}
+            {p.referencia_img && (
+              <a className="ref-img" href={p.referencia_img} target="_blank" rel="noreferrer">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={p.referencia_img} alt="Print de referência" />
+              </a>
             )}
           </section>
 
@@ -293,15 +362,10 @@ export default async function Detalhe({ params }: { params: Promise<{ id: string
                 </>
               )}
             </dl>
-            {p.briefing && !escreve && (
-              <div className="briefing">
-                <b>Briefing pra edição</b>
-                <pre>{p.briefing}</pre>
-              </div>
-            )}
+
           </section>
 
-          {escreve && (
+          {fichaEditavel && (
             <details className="bloco editar-ficha">
               <summary>Editar ficha</summary>
               <Form acao={salvarFicha} className="form-ficha" feito="Ficha salva">
@@ -339,6 +403,10 @@ export default async function Detalhe({ params }: { params: Promise<{ id: string
                 <label>
                   Link da referência
                   <input name="referencia_url" type="url" defaultValue={p.referencia_url ?? ""} />
+                </label>
+                <label>
+                  Link de print/imagem de referência
+                  <input name="referencia_img" type="url" defaultValue={p.referencia_img ?? ""} placeholder="https://… (.jpg, .png)" />
                 </label>
                 <div className="duas">
                   <label>
@@ -384,7 +452,7 @@ export default async function Detalhe({ params }: { params: Promise<{ id: string
                 <Resultado r={p.resultado} />
               </div>
               {p.resultado_nota && <p className="dica">{p.resultado_nota}</p>}
-              {eu.papel !== "editor" && (
+              {marcaResultado && (
                 <Form acao={marcarResultado} className="form-ficha" feito="Resultado salvo">
                   <input type="hidden" name="id" value={p.id} />
                   <select name="resultado" defaultValue={p.resultado ?? "testando"}>
