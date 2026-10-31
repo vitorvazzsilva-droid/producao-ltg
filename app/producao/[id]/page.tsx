@@ -30,6 +30,10 @@ function ComMencao({ texto }: { texto: string }) {
 
 export const dynamic = "force-dynamic";
 
+// A trilha do topo volta pra area onde a producao esta agora.
+const AREA_DE: Record<string, string> = { copy: "/copys", gravar: "/gravacao", pronta: "/edicao", edicao: "/edicao?aba=editando", revisao: "/editados", aprovado: "/editados?aba=aprovados", no_ar: "/testes" };
+const ROT_AREA: Record<string, string> = { copy: "Copys", gravar: "Gravação", pronta: "Edição", edicao: "Edição", revisao: "Editados", aprovado: "Editados", no_ar: "Testes do tráfego" };
+
 function Player({ url }: { url: string }) {
   const p = player(url);
   if (p.tipo === "iframe") return <iframe className="player" src={p.src} allow="autoplay; fullscreen" allowFullScreen />;
@@ -70,7 +74,7 @@ export default async function Detalhe({ params }: { params: Promise<{ id: string
     <div className="pagina larga">
       <div className="det-cab">
         <div className="trilha">
-          <Link href="/esteira">Esteira</Link> <span>›</span> <Pill status={p.status} />
+          <Link href={AREA_DE[p.status] ?? "/esteira"}>{ROT_AREA[p.status] ?? "Esteira"}</Link> <span>›</span> <Pill status={p.status} />
           {minhaVez && <span className="sua-vez">sua vez</span>}
         </div>
         <h1 className="mono det-cod">
@@ -183,7 +187,7 @@ export default async function Detalhe({ params }: { params: Promise<{ id: string
           <section className="bloco">
             <div className="bloco-hd">
               <Icone n="baixar" />
-              <h2>Material bruto</h2>
+              <h2>Vídeo gravado (bruto)</h2>
               <span className="bloco-n">{brutos.length}</span>
             </div>
             {brutos.length === 0 ? (
@@ -217,7 +221,7 @@ export default async function Detalhe({ params }: { params: Promise<{ id: string
             </Form>
           </section>
 
-          <section className="bloco">
+          <section className="bloco" id="copy">
             <div className="bloco-hd">
               <Icone n="copy" />
               <h2>Copy</h2>
@@ -236,7 +240,11 @@ export default async function Detalhe({ params }: { params: Promise<{ id: string
                   <textarea name="copy" rows={12} defaultValue={p.copy ?? ""} placeholder="A copy inteira, do hook ao CTA" />
                 </label>
                 <label>
-                  Briefing pra edição
+                  Recado pra gravação
+                  <textarea name="briefing_gravacao" rows={3} defaultValue={p.briefing_gravacao ?? ""} placeholder="Tom, cenário, roupa, o que mostrar…" />
+                </label>
+                <label>
+                  Recado pra edição
                   <textarea
                     name="briefing"
                     rows={4}
@@ -249,9 +257,15 @@ export default async function Detalhe({ params }: { params: Promise<{ id: string
             ) : (
               <div className="copy-ler">
                 {eu.papel === "copy" && <p className="trava">A copy fica travada fora de “Em copy” e “Ajustes pedidos”.</p>}
+                {p.briefing_gravacao && (
+                  <div className="briefing briefing-topo">
+                    <b>Recado pra gravação</b>
+                    <pre>{p.briefing_gravacao}</pre>
+                  </div>
+                )}
                 {p.briefing && (
                   <div className="briefing briefing-topo">
-                    <b>Briefing pra edição</b>
+                    <b>Recado pra edição</b>
                     <pre>{p.briefing}</pre>
                   </div>
                 )}

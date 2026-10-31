@@ -6,19 +6,19 @@ import { criarProducao } from "../acoes";
 import { Form } from "../form";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Nova produção" };
+export const metadata = { title: "Nova copy" };
 
 export default async function Nova() {
   const eu = await quemSou();
-  if (eu.papel === "editor") redirect("/");
+  if (eu.papel !== "admin" && eu.papel !== "copy") redirect("/");
   const gente = await usuarios(true);
 
   return (
     <div className="pagina estreita">
       <div className="cab">
         <div>
-          <h1>Nova produção</h1>
-          <p className="sub">O código sai sozinho (LTG_número_ângulo). Dá pra escrever a copy agora ou depois.</p>
+          <h1>Nova copy</h1>
+          <p className="sub">Escreva a copy e os recados pra gravação e edição. O código sai sozinho (LTG_número_ângulo).</p>
         </div>
       </div>
 
@@ -74,7 +74,11 @@ export default async function Nova() {
           <textarea name="copy" rows={10} placeholder="O roteiro inteiro (pode deixar pra depois)" />
         </label>
         <label>
-          Briefing pra edição
+          Recado pra gravação <small>tom, cenário, roupa, o que mostrar</small>
+          <textarea name="briefing_gravacao" rows={3} placeholder="Ex.: grava em pé, energia alta, mostra o celular com o painel em dólar" />
+        </label>
+        <label>
+          Recado pra edição
           <textarea name="briefing" rows={4} placeholder="Ritmo, legenda, inserções, música, o que NÃO fazer…" />
         </label>
         <div className="duas">
@@ -105,7 +109,7 @@ export default async function Nova() {
             </select>
           </label>
         </div>
-        <button className="btn grande">Criar produção</button>
+        <button className="btn grande">Criar copy</button>
       </Form>
     </div>
   );

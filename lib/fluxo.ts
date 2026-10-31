@@ -2,17 +2,19 @@
 // botao (ou arrasto) faz. Tela, quadro e action leem daqui, entao mudar o
 // fluxo e mexer so neste arquivo.
 
-export type Papel = "admin" | "copy" | "editor" | "trafego";
+export type Papel = "admin" | "copy" | "gravacao" | "editor" | "trafego";
 
 export const PAPEIS: Record<Papel, string> = {
   admin: "Admin",
   copy: "Copy",
+  gravacao: "Gravação",
   editor: "Editor",
   trafego: "Tráfego",
 };
 
 export const STATUS = {
   copy: { rotulo: "Em copy", cor: "azul" },
+  gravar: { rotulo: "Pra gravar", cor: "rosa" },
   pronta: { rotulo: "Pronta pra editar", cor: "roxo" },
   edicao: { rotulo: "Em edição", cor: "laranja" },
   revisao: { rotulo: "Em revisão", cor: "amarelo" },
@@ -25,7 +27,7 @@ export const STATUS = {
 export type Status = keyof typeof STATUS;
 
 // Colunas do quadro. "No ar" nao e coluna: vive em Testes do trafego.
-export const ETAPAS: Status[] = ["copy", "pronta", "edicao", "revisao", "ajustes", "aprovado"];
+export const ETAPAS: Status[] = ["copy", "gravar", "pronta", "edicao", "revisao", "ajustes", "aprovado"];
 
 // O minimo da producao que as regras precisam enxergar.
 export type Estado = { status: string; copy_id: number | null; editor_id: number | null; ajuste_de?: string | null };
@@ -40,6 +42,8 @@ export function vez(p: Estado): { papeis: Papel[]; dono?: "copy_id" | "editor_id
   switch (p.status) {
     case "copy":
       return { papeis: ["copy"], dono: "copy_id" };
+    case "gravar":
+      return { papeis: ["gravacao", "admin"] };
     case "pronta":
     case "edicao":
       return { papeis: ["editor"], dono: "editor_id" };
@@ -63,12 +67,22 @@ export type Passo = {
   principal?: boolean;
   pedeTexto?: string; // placeholder do comentario obrigatorio
   pedeVersao?: boolean; // so libera se ja tem versao editada
+  pedeBruto?: boolean; // so libera se ja tem video gravado
   ajusteDe?: "copy" | "editor"; // quem vai corrigir, quando o passo leva pra ajustes
   quando?: (p: Estado) => boolean;
 };
 
 export const PASSOS: Passo[] = [
-  { id: "mandar", de: ["copy"], para: "pronta", rotulo: "Copy pronta — mandar pro editor", quem: ["copy", "admin"], principal: true },
+  { id: "mandar", de: ["copy"], para: "gravar", rotulo: "Copy pronta — mandar pra gravação", quem: ["copy", "admin"], principal: true },
+  {
+    id: "gravei",
+    de: ["gravar"],
+    para: "pronta",
+    rotulo: "Gravei — mandar pro editor",
+    quem: ["gravacao", "admin"],
+    principal: true,
+    pedeBruto: true,
+  },
   { id: "pegar", de: ["pronta"], para: "edicao", rotulo: "Pegar pra editar", quem: ["editor", "admin"], principal: true },
   {
     id: "revisar",
@@ -92,10 +106,10 @@ export const PASSOS: Passo[] = [
   },
   {
     id: "ajustar_copy",
-    de: ["pronta", "edicao"],
+    de: ["gravar", "pronta", "edicao"],
     para: "ajustes",
     rotulo: "Pedir ajuste na copy",
-    quem: ["editor", "admin"],
+    quem: ["gravacao", "editor", "admin"],
     ajusteDe: "copy",
     pedeTexto: "O que precisa mudar na copy? Ex.: o hook está longo, falta o CTA…",
   },
@@ -103,13 +117,13 @@ export const PASSOS: Passo[] = [
     id: "copy_ajustada",
     de: ["ajustes"],
     para: "edicao",
-    rotulo: "Copy ajustada — devolver pro editor",
+    rotulo: "Copy ajustada — devolver",
     quem: ["copy", "admin"],
     principal: true,
     quando: (p) => ajusteDe(p) === "copy",
   },
   { id: "subir", de: ["aprovado"], para: "no_ar", rotulo: "Subiu no tráfego", quem: ["trafego", "admin"], principal: true },
-  { id: "voltar_copy", de: ["pronta"], para: "copy", rotulo: "Voltar pra copy", quem: ["copy", "admin"] },
+  { id: "voltar_copy", de: ["gravar", "pronta"], para: "copy", rotulo: "Voltar pra copy", quem: ["copy", "admin"] },
   { id: "arquivar", de: ["copy", "pronta", "edicao", "revisao", "ajustes", "aprovado", "no_ar"], para: "arquivado", rotulo: "Arquivar", quem: ["admin"] },
   { id: "reabrir", de: ["arquivado"], para: "copy", rotulo: "Reabrir", quem: ["admin"] },
 ];
@@ -123,7 +137,9 @@ export function passosPara(p: Estado, papel: Papel) {
 // Arrastar no quadro: acha o passo que leva da coluna atual pra coluna de
 // destino. O admin pode mover qualquer card pra qualquer etapa ("mover").
 export function passoDoArrasto(p: Estado, papel: Papel, para: Status): Passo | null {
-  const s = passosPara(p, papel).find((x) => x.para === para || (x.id === "copy_ajustada" && (para === "edicao" || para === "pronta")));
+  const s = passosPara(p, papel).find(
+    (x) => x.para === para || (x.id === "copy_ajustada" && (para === "edicao" || para === "pronta" || para === "gravar"))
+  );
   if (s) return s;
   if (papel === "admin" && para !== p.status) return MOVER(para);
   return null;

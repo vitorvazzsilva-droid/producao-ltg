@@ -105,6 +105,7 @@ function slugAngulo(s: string) {
 
 export async function criarProducao(f: FormData) {
   const e = await eu();
+  if (e.papel !== "admin" && e.papel !== "copy") return { erro: "Só o copy cria copy nova." };
   const angulo = txt(f, "angulo");
   if (!angulo) return { erro: "ângulo obrigatório" };
   const ref = txt(f, "referencia_url");
@@ -115,8 +116,8 @@ export async function criarProducao(f: FormData) {
   const editorId = Number(f.get("editor_id")) || null;
 
   const r = await db.execute({
-    sql: `INSERT INTO producoes (codigo, angulo, lado, tipo, formato, hook, copy, briefing, referencia_url, referencia_img, prazo, copy_id, editor_id, criado_por)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO producoes (codigo, angulo, lado, tipo, formato, hook, copy, briefing, briefing_gravacao, referencia_url, referencia_img, prazo, copy_id, editor_id, criado_por)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       codigo,
       angulo,
@@ -126,6 +127,7 @@ export async function criarProducao(f: FormData) {
       ouNulo(txt(f, "hook")),
       ouNulo(txt(f, "copy")),
       ouNulo(txt(f, "briefing")),
+      ouNulo(txt(f, "briefing_gravacao")),
       ref && linkValido(ref) ? ref : null,
       img && linkValido(img) ? img : null,
       ouNulo(txt(f, "prazo")),
@@ -148,10 +150,10 @@ export async function salvarCopy(f: FormData) {
     return { erro: "A copy só pode ser editada em “Em copy” ou “Ajustes pedidos”." };
   }
   await db.execute({
-    sql: "UPDATE producoes SET hook = ?, copy = ?, briefing = ?, atualizado_em = datetime('now') WHERE id = ?",
-    args: [ouNulo(txt(f, "hook")), ouNulo(txt(f, "copy")), ouNulo(txt(f, "briefing")), id],
+    sql: "UPDATE producoes SET hook = ?, copy = ?, briefing = ?, briefing_gravacao = ?, atualizado_em = datetime('now') WHERE id = ?",
+    args: [ouNulo(txt(f, "hook")), ouNulo(txt(f, "copy")), ouNulo(txt(f, "briefing")), ouNulo(txt(f, "briefing_gravacao")), id],
   });
-  revalidatePath(`/producao/${id}`);
+  revalidatePath("/", "layout");
 }
 
 export async function salvarFicha(f: FormData) {
@@ -185,7 +187,7 @@ export async function salvarFicha(f: FormData) {
   if (copyId && copyId !== antes.copy_id) {
     await avisar([copyId], id, `${e.nome} colocou você como copy de ${antes.codigo}`, e.id);
   }
-  revalidatePath(`/producao/${id}`);
+  revalidatePath("/", "layout");
 }
 
 export async function mudarEtapa(f: FormData) {
@@ -203,6 +205,10 @@ export async function mudarEtapa(f: FormData) {
   }
   const nota = txt(f, "texto");
   if (passo.pedeTexto && !nota) return { erro: "Escreva o que precisa mudar.", pedeTexto: passo.pedeTexto };
+  if (passo.pedeBruto) {
+    const b = await db.execute({ sql: "SELECT COUNT(*) AS n FROM materiais WHERE producao_id = ? AND tipo = 'bruto'", args: [id] });
+    if (!Number(b.rows[0].n)) return { erro: "Cole o link do vídeo gravado antes de mandar pro editor." };
+  }
   if (passo.pedeVersao) {
     const v = await db.execute({ sql: "SELECT COUNT(*) AS n FROM materiais WHERE producao_id = ? AND tipo = 'versao'", args: [id] });
     if (!Number(v.rows[0].n)) return { erro: "Suba a versão editada antes de mandar pra revisão." };
@@ -212,8 +218,13 @@ export async function mudarEtapa(f: FormData) {
   // copy, se ainda nao tinha.
   const editorId = passo.id === "pegar" && !p.editor_id && e.papel === "editor" ? e.id : p.editor_id;
   const copyId = passo.id === "mandar" && !p.copy_id && e.papel === "copy" ? e.id : p.copy_id;
-  // Copy ajustada volta pra edicao se ja tem editor; sem editor, pra fila.
-  const para: Status = passo.id === "copy_ajustada" && !editorId ? "pronta" : passo.para;
+  // Copy ajustada volta pra onde parou: edicao se ja tem editor, fila de
+  // edicao se ja foi gravada, senao pra gravacao.
+  let para: Status = passo.para;
+  if (passo.id === "copy_ajustada" && !editorId) {
+    const b = await db.execute({ sql: "SELECT COUNT(*) AS n FROM materiais WHERE producao_id = ? AND tipo = 'bruto'", args: [id] });
+    para = Number(b.rows[0].n) ? "pronta" : "gravar";
+  }
   const ajuste = para === "ajustes" ? passo.ajusteDe ?? "editor" : null;
 
   await db.execute({
@@ -231,8 +242,15 @@ export async function mudarEtapa(f: FormData) {
 
   const cod = p.codigo;
   const avisoPor: Partial<Record<Status, () => Promise<void>>> = {
+    gravar: async () =>
+      avisar(
+        [...(await idsDoPapel("gravacao")), ...(await idsDoPapel("admin"))],
+        id,
+        passo.id === "copy_ajustada" ? `${e.nome} ajustou a copy de ${cod} — pode gravar` : `${e.nome} mandou a copy ${cod} pra gravar`,
+        e.id
+      ),
     pronta: async () =>
-      avisar(editorId ? [editorId] : await idsDoPapel("editor"), id, `${e.nome} passou ${cod} pra edição`, e.id),
+      avisar(editorId ? [editorId] : await idsDoPapel("editor"), id, `${e.nome} gravou ${cod} — pronto pra editar`, e.id),
     edicao: async () =>
       passo.id === "copy_ajustada" ? avisar([editorId], id, `${e.nome} ajustou a copy de ${cod} — pode seguir`, e.id) : undefined,
     revisao: async () =>
@@ -250,8 +268,7 @@ export async function mudarEtapa(f: FormData) {
   };
   await avisoPor[para]?.();
 
-  revalidatePath(`/producao/${id}`);
-  revalidatePath("/esteira");
+  revalidatePath("/", "layout");
   return { ok: true, para };
 }
 
@@ -269,7 +286,7 @@ export async function marcarResultado(f: FormData) {
   const p = await carregar(id);
   await registrar(id, e.id, `marcou o resultado: ${RESULTADOS[resultado as keyof typeof RESULTADOS]}${nota ? ` — ${nota}` : ""}`);
   if (resultado === "vencedor") await avisar([p.copy_id, p.editor_id], id, `${p.codigo} virou VENCEDOR no tráfego`, e.id);
-  revalidatePath(`/producao/${id}`);
+  revalidatePath("/", "layout");
 }
 
 export async function addMaterial(f: FormData) {
@@ -291,7 +308,7 @@ export async function addMaterial(f: FormData) {
   });
   await registrar(id, e.id, tipo === "versao" ? `subiu a versão ${versao}` : "adicionou material bruto");
   if (tipo === "bruto") await avisar([p.editor_id], id, `${p.codigo}: material bruto novo`, e.id);
-  revalidatePath(`/producao/${id}`);
+  revalidatePath("/", "layout");
 }
 
 export async function removerMaterial(f: FormData) {
@@ -303,7 +320,7 @@ export async function removerMaterial(f: FormData) {
   if (e.papel !== "admin" && m.enviado_por !== e.id) return { erro: "só quem subiu pode tirar" };
   await db.execute({ sql: "DELETE FROM materiais WHERE id = ?", args: [id] });
   await registrar(m.producao_id, e.id, "tirou um link de vídeo");
-  revalidatePath(`/producao/${m.producao_id}`);
+  revalidatePath("/", "layout");
 }
 
 export async function comentar(f: FormData) {
@@ -321,7 +338,7 @@ export async function comentar(f: FormData) {
     `${e.nome} comentou em ${p.codigo}`,
     e.id
   );
-  revalidatePath(`/producao/${id}`);
+  revalidatePath("/", "layout");
 }
 
 export async function lerAvisos() {
@@ -348,7 +365,7 @@ export async function criarUsuario(_: unknown, f: FormData) {
     .toLowerCase()
     .replace(/[^a-z0-9.]/g, "");
   if (!nome || !login) return { erro: "Coloque o nome." };
-  if (!["admin", "copy", "editor", "trafego"].includes(papel)) return { erro: "Escolha a função." };
+  if (!["admin", "copy", "gravacao", "editor", "trafego"].includes(papel)) return { erro: "Escolha a função." };
   const existe = await db.execute({ sql: "SELECT 1 FROM usuarios WHERE login = ?", args: [login] });
   if (existe.rows.length) return { erro: `Já existe alguém com o usuário “${login}”.` };
   const senha = senhaAleatoria();
@@ -401,7 +418,7 @@ export async function mudarPapel(f: FormData) {
   const e = await soAdmin();
   const id = Number(f.get("id"));
   const papel = txt(f, "papel");
-  if (id === e.id || !["admin", "copy", "editor", "trafego"].includes(papel)) return;
+  if (id === e.id || !["admin", "copy", "gravacao", "editor", "trafego"].includes(papel)) return;
   await db.execute({ sql: "UPDATE usuarios SET papel = ? WHERE id = ?", args: [papel, id] });
   revalidatePath("/equipe");
 }

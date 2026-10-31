@@ -25,20 +25,24 @@ export function Shell({
 }) {
   const rota = usePathname();
   const [menu, setMenu] = useState(false);
-  const emAndamento = ["copy", "pronta", "edicao", "revisao", "ajustes"].reduce((s, k) => s + (contagem[k] ?? 0), 0);
+  const emAndamento = ["copy", "gravar", "pronta", "edicao", "revisao", "ajustes"].reduce((s, k) => s + (contagem[k] ?? 0), 0);
 
   const grupos: { titulo: string; itens: Item[] }[] = [
+    { titulo: "Trabalho", itens: [{ href: "/", rotulo: "Início", icone: "inicio" }] },
     {
-      titulo: "Trabalho",
+      titulo: "Áreas",
       itens: [
-        { href: "/", rotulo: "Início", icone: "inicio" },
-        { href: "/esteira", rotulo: "Esteira", icone: "esteira", n: emAndamento },
+        { href: "/copys", rotulo: "1  Copys", icone: "copy", n: contagem.copy },
+        { href: "/gravacao", rotulo: "2  Gravação", icone: "camera", n: contagem.gravar },
+        { href: "/edicao", rotulo: "3  Edição", icone: "video", n: (contagem.pronta ?? 0) + (contagem.edicao ?? 0) },
+        { href: "/editados", rotulo: "4  Editados", icone: "check", n: contagem.revisao },
       ],
     },
     {
-      titulo: "Acervo",
+      titulo: "Visão geral",
       itens: [
-        { href: "/anuncios", rotulo: "Anúncios", icone: "anuncios" },
+        { href: "/esteira", rotulo: "Esteira", icone: "esteira", n: emAndamento },
+        { href: "/anuncios", rotulo: "Acervo", icone: "anuncios" },
         { href: "/testes", rotulo: "Testes do tráfego", icone: "testes", n: contagem.no_ar },
       ],
     },
@@ -57,9 +61,9 @@ export function Shell({
           </span>
         </Link>
 
-        {eu.papel !== "editor" && (
+        {(eu.papel === "admin" || eu.papel === "copy") && (
           <Link href="/nova" className="btn-nova">
-            <Icone n="mais" /> Nova produção
+            <Icone n="mais" /> Nova copy
           </Link>
         )}
 
@@ -70,7 +74,10 @@ export function Shell({
               {g.itens.map((i) => (
                 <Link key={i.href} href={i.href} className={"nav-i" + (ativo(i.href) ? " on" : "")}>
                   <Icone n={i.icone} />
-                  <span>{i.rotulo}</span>
+                  <span>
+                    {/^\d/.test(i.rotulo) && <b className="nav-num">{i.rotulo[0]}</b>}
+                    {i.rotulo.replace(/^\d\s+/, "")}
+                  </span>
                   {!!i.n && <span className="nav-n">{i.n}</span>}
                 </Link>
               ))}

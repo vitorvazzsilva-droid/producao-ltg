@@ -8,7 +8,8 @@ export const dynamic = "force-dynamic";
 
 // O que cada funcao precisa fazer pra destravar a vez dela.
 const DICA: Record<string, string> = {
-  copy: "Escreva a copy e mande pro editor",
+  copy: "Escreva a copy e mande pra gravação",
+  gravar: "Grave, cole o link do vídeo e mande pro editor",
   pronta: "Pegue pra editar",
   edicao: "Suba o link da versão e mande pra revisão",
   ajustes: "Faça o ajuste pedido",
@@ -16,12 +17,23 @@ const DICA: Record<string, string> = {
   aprovado: "Suba no tráfego",
 };
 
+// Cada contador abre a area onde aquela etapa e trabalhada.
+const AREA: Record<string, string> = {
+  copy: "/copys",
+  gravar: "/gravacao",
+  pronta: "/edicao",
+  edicao: "/edicao?aba=editando",
+  revisao: "/editados",
+  ajustes: "/esteira?etapa=ajustes",
+  aprovado: "/editados?aba=aprovados",
+};
+
 export default async function Inicio() {
   const eu = await quemSou();
   const hoje = hojeSP();
   const [todas, cont] = await Promise.all([producoes(), contagens()]);
   const minhas = todas.filter((p) => eMinhaVez(p, eu));
-  const atrasadas = todas.filter((p) => p.prazo && p.prazo <= hoje && ["copy", "pronta", "edicao", "revisao", "ajustes"].includes(p.status));
+  const atrasadas = todas.filter((p) => p.prazo && p.prazo <= hoje && ["copy", "gravar", "pronta", "edicao", "revisao", "ajustes"].includes(p.status));
   const recentes = todas.filter((p) => p.status === "aprovado" || p.status === "no_ar").slice(0, 6);
 
   // Agrupa a vez por etapa: o editor ve "pra pegar" separado de "em edicao".
@@ -40,8 +52,8 @@ export default async function Inicio() {
       </div>
 
       <div className="kpis">
-        {(["copy", "pronta", "edicao", "revisao", "ajustes", "aprovado"] as Status[]).map((s) => (
-          <Link key={s} href={`/esteira?etapa=${s}`} className={`kpi st-${s}`}>
+        {(["copy", "gravar", "pronta", "edicao", "revisao", "ajustes", "aprovado"] as Status[]).map((s) => (
+          <Link key={s} href={AREA[s]} className={`kpi st-${s}`}>
             <span className="kpi-n">{cont[s] ?? 0}</span>
             <span className="kpi-t">{STATUS[s].rotulo}</span>
           </Link>

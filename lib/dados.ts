@@ -11,6 +11,7 @@ export type Producao = {
   hook: string | null;
   copy: string | null;
   briefing: string | null;
+  briefing_gravacao: string | null;
   referencia_url: string | null;
   referencia_img: string | null;
   ajuste_de: string | null;
@@ -186,4 +187,38 @@ export function quando(utc: string | null) {
 
 export function hojeSP() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+}
+
+// Materiais de varias producoes de uma vez (telas de area listam muitas).
+export async function materiaisDe(ids: number[]) {
+  const m = new Map<number, Material[]>();
+  if (!ids.length) return m;
+  const r = await db.execute({
+    sql: `SELECT m.*, u.nome AS enviado_por_nome FROM materiais m
+          LEFT JOIN usuarios u ON u.id = m.enviado_por
+          WHERE m.producao_id IN (${ids.map(() => "?").join(",")})
+          ORDER BY m.tipo, COALESCE(m.versao, 0) DESC, m.id`,
+    args: ids,
+  });
+  for (const l of r.rows as unknown as (Material & { producao_id: number })[]) {
+    m.set(l.producao_id, [...(m.get(l.producao_id) ?? []), l]);
+  }
+  return m;
+}
+
+// Ultimo pedido de ajuste de cada producao (pra mostrar o "o que mudar").
+export async function ajustesDe(ids: number[]) {
+  const m = new Map<number, { texto: string; autor: string | null }>();
+  if (!ids.length) return m;
+  const r = await db.execute({
+    sql: `SELECT c.producao_id, c.texto, u.nome AS autor FROM comentarios c
+          LEFT JOIN usuarios u ON u.id = c.usuario_id
+          WHERE c.tipo = 'ajuste' AND c.producao_id IN (${ids.map(() => "?").join(",")})
+          ORDER BY c.id`,
+    args: ids,
+  });
+  for (const l of r.rows as unknown as { producao_id: number; texto: string; autor: string | null }[]) {
+    m.set(l.producao_id, { texto: l.texto, autor: l.autor });
+  }
+  return m;
 }

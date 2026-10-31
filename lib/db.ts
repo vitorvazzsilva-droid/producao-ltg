@@ -157,6 +157,8 @@ export async function initDb() {
     "ajuste_de TEXT",
     // print/imagem de referencia (link por enquanto; upload quando o R2 ligar)
     "referencia_img TEXT",
+    // recado pra quem grava (tom, cenario, roupa), separado do briefing de edicao
+    "briefing_gravacao TEXT",
   ]) {
     try {
       await db.execute(`ALTER TABLE producoes ADD COLUMN ${col}`);
