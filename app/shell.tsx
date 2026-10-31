@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import type { Eu } from "@/lib/sessao";
 import { PAPEIS } from "@/lib/fluxo";
-import { Icone } from "./icones";
+import { Icone, Logo } from "./icones";
 import { Busca } from "./busca";
 import { sair } from "./acoes";
 
@@ -50,8 +50,10 @@ export function Shell({
     <div className={"app" + (menu ? " menu-aberto" : "")}>
       <aside className="side" onClick={(e) => (e.target as HTMLElement).closest("a") && setMenu(false)}>
         <Link href="/" className="marca">
-          <img src="/ltg/logo.webp" alt="Low Ticket Global" className="marca-logo" width={170} height={140} />
-          <span>produção</span>
+          <Logo />
+          <span>
+            produção <b>LTG</b>
+          </span>
         </Link>
 
         {eu.papel !== "editor" && (
