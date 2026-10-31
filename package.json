@@ -1,0 +1,26 @@
+{
+  "name": "producao-ltg",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev -p 3020",
+    "build": "next build",
+    "start": "next start -p 3020",
+    "publicar": "bash scripts/publicar.sh"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.17.4",
+    "next": "^16.4.3",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@opennextjs/cloudflare": "^1.20.14",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "typescript": "^5",
+    "wrangler": "^4.155.0"
+  }
+}

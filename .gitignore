@@ -1,0 +1,9 @@
+node_modules
+.next
+local.db*
+.env.local
+.env.local.fora
+.open-next
+.wrangler
+.dev.vars
+next-env.d.ts
