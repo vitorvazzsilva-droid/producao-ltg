@@ -25,25 +25,15 @@ export function Shell({
 }) {
   const rota = usePathname();
   const [menu, setMenu] = useState(false);
-  const emAndamento = ["copy", "gravar", "pronta", "edicao", "revisao", "ajustes"].reduce((s, k) => s + (contagem[k] ?? 0), 0);
 
+  // So as tres areas do trabalho (e Equipe pro admin cadastrar o pessoal).
   const grupos: { titulo: string; itens: Item[] }[] = [
-    { titulo: "Trabalho", itens: [{ href: "/", rotulo: "Início", icone: "inicio" }] },
     {
       titulo: "Áreas",
       itens: [
-        { href: "/copys", rotulo: "1  Copys", icone: "copy", n: contagem.copy },
-        { href: "/gravacao", rotulo: "2  Gravação", icone: "camera", n: contagem.gravar },
-        { href: "/edicao", rotulo: "3  Edição", icone: "video", n: (contagem.pronta ?? 0) + (contagem.edicao ?? 0) },
-        { href: "/editados", rotulo: "4  Editados", icone: "check", n: contagem.revisao },
-      ],
-    },
-    {
-      titulo: "Visão geral",
-      itens: [
-        { href: "/esteira", rotulo: "Esteira", icone: "esteira", n: emAndamento },
-        { href: "/anuncios", rotulo: "Acervo", icone: "anuncios" },
-        { href: "/testes", rotulo: "Testes do tráfego", icone: "testes", n: contagem.no_ar },
+        { href: "/copys", rotulo: "1  Copys", icone: "copy", n: (contagem.copy ?? 0) + (contagem.gravar ?? 0) },
+        { href: "/gravados", rotulo: "2  Gravados", icone: "video", n: (contagem.pronta ?? 0) + (contagem.edicao ?? 0) },
+        { href: "/editados", rotulo: "3  Editados", icone: "check", n: contagem.revisao },
       ],
     },
     ...(eu.papel === "admin" ? [{ titulo: "Equipe", itens: [{ href: "/equipe", rotulo: "Equipe", icone: "equipe" }] }] : []),
@@ -54,7 +44,7 @@ export function Shell({
   return (
     <div className={"app" + (menu ? " menu-aberto" : "")}>
       <aside className="side" onClick={(e) => (e.target as HTMLElement).closest("a") && setMenu(false)}>
-        <Link href="/" className="marca">
+        <Link href="/copys" className="marca">
           <Logo />
           <span>
             produção <b>LTG</b>

@@ -31,8 +31,8 @@ function ComMencao({ texto }: { texto: string }) {
 export const dynamic = "force-dynamic";
 
 // A trilha do topo volta pra area onde a producao esta agora.
-const AREA_DE: Record<string, string> = { copy: "/copys", gravar: "/gravacao", pronta: "/edicao", edicao: "/edicao?aba=editando", revisao: "/editados", aprovado: "/editados?aba=aprovados", no_ar: "/testes" };
-const ROT_AREA: Record<string, string> = { copy: "Copys", gravar: "Gravação", pronta: "Edição", edicao: "Edição", revisao: "Editados", aprovado: "Editados", no_ar: "Testes do tráfego" };
+const AREA_DE: Record<string, string> = { copy: "/copys", gravar: "/copys?aba=gravar", pronta: "/gravados", edicao: "/gravados?aba=editando", ajustes: "/copys", revisao: "/editados", aprovado: "/editados?aba=aprovados", no_ar: "/editados?aba=aprovados" };
+const ROT_AREA: Record<string, string> = { copy: "Copys", gravar: "Copys", pronta: "Gravados", edicao: "Gravados", ajustes: "Copys", revisao: "Editados", aprovado: "Editados", no_ar: "Editados" };
 
 function Player({ url }: { url: string }) {
   const p = player(url);
@@ -74,7 +74,9 @@ export default async function Detalhe({ params }: { params: Promise<{ id: string
     <div className="pagina larga">
       <div className="det-cab">
         <div className="trilha">
-          <Link href={AREA_DE[p.status] ?? "/esteira"}>{ROT_AREA[p.status] ?? "Esteira"}</Link> <span>›</span> <Pill status={p.status} />
+          <Link href={p.status === "ajustes" && p.ajuste_de !== "copy" ? "/gravados?aba=editando" : AREA_DE[p.status] ?? "/copys"}>
+            {p.status === "ajustes" && p.ajuste_de !== "copy" ? "Gravados" : ROT_AREA[p.status] ?? "Copys"}
+          </Link> <span>›</span> <Pill status={p.status} />
           {minhaVez && <span className="sua-vez">sua vez</span>}
         </div>
         <h1 className="mono det-cod">
