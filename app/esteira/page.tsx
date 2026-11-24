@@ -1,84 +1,89 @@
-import Link from "next/link";
 import { eu as quemSou } from "@/lib/sessao";
-import { producoes, hojeSP, usuarios } from "@/lib/dados";
-import { ETAPAS, LADOS, STATUS, TIPOS, type Status } from "@/lib/fluxo";
+import { producoes, usuarios } from "@/lib/dados";
+import { db } from "@/lib/db";
+import { ETAPAS, GRUPOS, STATUS } from "@/lib/fluxo";
+import { estaParada } from "../card";
+import { Icone } from "../icones";
 import { Quadro } from "./quadro";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Esteira" };
 
-type Q = { pessoa?: string; lado?: string; tipo?: string; etapa?: string };
+const CORES_ETAPA = ["#5b47d6", "#8b7cf0", "#c4b9f7", "#e0a33a", "#f1c87a"];
 
-export default async function Esteira({ searchParams }: { searchParams: Promise<Q> }) {
+export default async function Esteira() {
   const eu = await quemSou();
-  const q = await searchParams;
-  const pessoa = Number(q.pessoa) || undefined;
-  const lado = q.lado && q.lado in LADOS ? q.lado : undefined;
-  const tipo = q.tipo && q.tipo in TIPOS ? q.tipo : undefined;
-  const etapa = ETAPAS.includes(q.etapa as Status) ? (q.etapa as Status) : undefined;
-  const [lista, gente] = await Promise.all([producoes({ status: ETAPAS, pessoa, lado, tipo }), usuarios(true)]);
-
-  // Os filtros se somam: cada link troca so o proprio campo.
-  const link = (mudar: Partial<Q>) => {
-    const p = new URLSearchParams(Object.entries({ ...q, ...mudar }).filter(([, v]) => v) as [string, string][]);
-    const s = p.toString();
-    return s ? `/esteira?${s}` : "/esteira";
-  };
+  const [lista, gente, subiram] = await Promise.all([
+    producoes({ status: ETAPAS }),
+    usuarios(true),
+    db.execute("SELECT COUNT(*) AS n FROM producoes WHERE no_ar_em >= datetime('now', 'weekday 1', '-7 days')"),
+  ]);
+  const paradas = lista.filter(estaParada).length;
+  const nSubiram = Number(subiram.rows[0]?.n ?? 0);
 
   return (
     <div className="pagina larga">
       <div className="cab">
         <div>
           <h1>Esteira</h1>
-          <p className="sub">Arraste o card pra próxima etapa, ou abra o card e use os botões.</p>
+          <p className="sub">
+            {lista.length} {lista.length === 1 ? "produção" : "produções"} · <span className="sublinhado">{paradas} paradas</span>. Arraste um card para
+            mudar a etapa — se não der, o motivo aparece.
+          </p>
         </div>
       </div>
 
-      <div className="barra-esteira">
-        <div className="filtros">
-          <Link href={link({ pessoa: undefined })} className={"chip-f" + (!pessoa ? " on" : "")}>
-            Todo mundo
-          </Link>
-          {gente
-            .filter((u) => u.papel === "copy" || u.papel === "editor")
-            .map((u) => (
-              <Link key={u.id} href={link({ pessoa: String(u.id) })} className={"chip-f" + (pessoa === u.id ? " on" : "")}>
-                {u.nome}
-              </Link>
-            ))}
+      <div className="resumo">
+        <div className="res-escuro">
+          <span className="sublinhado">Na esteira agora</span>
+          <b>{lista.length}</b>
+          <small>
+            <i className="bola vermelha" /> <span className="sublinhado">{paradas} paradas</span>
+          </small>
+          <small>
+            <i className="bola verde" /> <span className="sublinhado">{nSubiram} anúncios subiram nesta semana</span>
+          </small>
         </div>
-        <div className="filtros">
-          <Link href={link({ lado: undefined })} className={"chip-f" + (!lado ? " on" : "")}>
-            Black e white
-          </Link>
-          {Object.entries(LADOS).map(([k, v]) => (
-            <Link key={k} href={link({ lado: k })} className={"chip-f" + (lado === k ? " on" : "")}>
-              {v}
-            </Link>
-          ))}
-        </div>
-        <div className="filtros">
-          <Link href={link({ tipo: undefined })} className={"chip-f" + (!tipo ? " on" : "")}>
-            Todo tipo
-          </Link>
-          {Object.entries(TIPOS).map(([k, v]) => (
-            <Link key={k} href={link({ tipo: k })} className={"chip-f" + (tipo === k ? " on" : "")}>
-              {v}
-            </Link>
-          ))}
-        </div>
+        {GRUPOS.map((g) => {
+          const doGrupo = lista.filter((p) => g.etapas.includes(p.status as (typeof g.etapas)[number]));
+          const par = doGrupo.filter(estaParada).length;
+          return (
+            <div key={g.id} className="res-card">
+              <div className="res-hd">
+                <span className="res-ic" style={{ color: g.cor, background: g.cor + "1a" }}>
+                  <Icone n={g.icone} />
+                </span>
+                <span>{g.rotulo}</span>
+                <b>{doGrupo.length}</b>
+              </div>
+              <div className="res-barra">
+                {g.etapas.map((s, i) => {
+                  const n = doGrupo.filter((p) => p.status === s).length;
+                  return n ? (
+                    <i
+                      key={s}
+                      title={`${STATUS[s].rotulo}: ${n}`}
+                      style={{ flex: n, background: g.id === "trafego" ? (i ? "#1d8a4b" : "#7bc59a") : g.id === "fora" ? "#bdb8c9" : i === 0 ? g.cor : CORES_ETAPA[i] }}
+                    />
+                  ) : null;
+                })}
+              </div>
+              <div className={"res-pe" + (par ? " vermelho" : "")}>
+                {par > 0 && <Icone n="relogio" s={13} />}
+                {g.etapas.length} {g.etapas.length === 1 ? "etapa" : "etapas"} · {par ? `${par} ${par === 1 ? "parada" : "paradas"}` : "nada parado"}
+              </div>
+            </div>
+          );
+        })}
       </div>
 
-      {etapa && (
-        <p className="so-etapa">
-          Mostrando só <span className={`pill st-${etapa}`}>{STATUS[etapa].rotulo}</span>
-          <Link href={link({ etapa: undefined })} className="lk">
-            ver todas as etapas
-          </Link>
-        </p>
-      )}
-
-      <Quadro lista={lista} eu={{ id: eu.id, papel: eu.papel }} hoje={hojeSP()} etapas={etapa ? [etapa] : ETAPAS} />
+      <Quadro
+        lista={lista}
+        eu={eu}
+        pessoas={gente.map((g) => ({ id: g.id, nome: g.nome, papel: g.papel }))}
+        filtros={["copywriter", "expert", "editor", "tipo"]}
+        chave="esteira"
+      />
     </div>
   );
 }

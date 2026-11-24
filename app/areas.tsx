@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Material, Producao } from "@/lib/dados";
-import { passosPara, type Papel } from "@/lib/fluxo";
+import { passosPara, podeExcluir, type Papel } from "@/lib/fluxo";
+import { Excluir } from "./excluir";
 import { baixar, player } from "@/lib/midia";
 import { addMaterial, mudarEtapa, removerMaterial } from "./acoes";
 import { Form } from "./form";
@@ -23,7 +24,7 @@ export function Abas({ base, atual, abas }: { base: string; atual: string; abas:
   );
 }
 
-export function ItemCab({ p, hoje }: { p: Producao; hoje: string }) {
+export function ItemCab({ p, hoje, eu }: { p: Producao; hoje: string; eu?: { id: number; papel: Papel } }) {
   const venceu = p.prazo && p.prazo < hoje;
   return (
     <div className="item-cab">
@@ -41,6 +42,7 @@ export function ItemCab({ p, hoje }: { p: Producao; hoje: string }) {
       <Link href={`/producao/${p.id}`} className="lk">
         abrir card <Icone n="externo" s={13} />
       </Link>
+      {eu && podeExcluir(p, eu) && <Excluir qual="producao" id={p.id} aviso="Excluir de vez?" />}
     </div>
   );
 }

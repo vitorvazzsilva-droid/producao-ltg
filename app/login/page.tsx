@@ -25,7 +25,7 @@ export default function Login() {
           <input name="senha" type="password" autoComplete="current-password" required />
         </label>
         {estado?.erro && <p className="erro">{estado.erro}</p>}
-        <button className="btn grande" disabled={enviando}>
+        <button className={"btn grande" + (enviando ? " carregando" : "")} disabled={enviando}>
           {enviando ? "Entrando…" : "Entrar"}
         </button>
       </form>

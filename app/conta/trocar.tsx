@@ -18,7 +18,7 @@ export function TrocarSenha() {
         Senha nova
         <input name="nova" type="password" autoComplete="new-password" minLength={8} required />
       </label>
-      <button className="btn" disabled={pend}>
+      <button className={"btn" + (pend ? " carregando" : "")} disabled={pend}>
         Trocar senha
       </button>
       {r?.erro && <p className="erro">{r.erro}</p>}

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-// Endereco antigo: a edicao agora e a area Gravados.
+// Tela antiga: agora mora em /esteira.
 export default function Antiga() {
-  redirect("/gravados");
+  redirect("/esteira");
 }

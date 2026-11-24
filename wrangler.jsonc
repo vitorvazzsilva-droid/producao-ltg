@@ -4,6 +4,9 @@
   "main": ".open-next/worker.js",
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  // O D1 mora no leste dos EUA (ENAM). Rodar o Worker do lado dele faz cada
+  // consulta levar ~1ms em vez de ~120ms (ida e volta Sao Paulo <-> EUA).
+  "placement": { "mode": "targeted", "region": "aws:us-east-1" },
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"

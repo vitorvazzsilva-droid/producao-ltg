@@ -1,4 +1,5 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { createClient as clienteWeb } from "@libsql/client/web";
 
 // Script rodado a mao nao passa pelo carregamento de env do Next.
 if (typeof process.loadEnvFile === "function") {
@@ -10,6 +11,7 @@ if (typeof process.loadEnvFile === "function") {
 /* Dois bancos, a mesma interface:
  *   - no Mac (npm run dev), arquivo local.db via @libsql/client
  *   - publicado na Cloudflare, o D1 (binding DB)
+ *   - publicado na Vercel, o Turso (TURSO_DATABASE_URL + TURSO_AUTH_TOKEN)
  * O resto do app so conhece execute() e batch(), no formato do libsql. */
 
 type Arg = string | number | null;
@@ -38,6 +40,14 @@ type Libsql = {
 };
 let local: Promise<Libsql> | null = null;
 function libsql() {
+  // Na Vercel: banco Turso pela internet (cliente HTTP, sem modulo nativo).
+  const url = process.env.TURSO_DATABASE_URL;
+  if (url) {
+    local ??= Promise.resolve(
+      clienteWeb({ url: url.replace(/^libsql:/, "https:"), authToken: process.env.TURSO_AUTH_TOKEN }) as unknown as Libsql
+    );
+    return local;
+  }
   // Import escondido do bundler: o cliente nativo nao vai pro Worker.
   local ??= import(/* turbopackIgnore: true */ /* webpackIgnore: true */ "@libsql/client" as string).then(
     (m: { createClient(o: { url: string }): Libsql }) => m.createClient({ url: "file:local.db" })
@@ -71,8 +81,22 @@ export const db = {
 
 let pronto = false;
 
+// Versao do schema. Mexeu em tabela/coluna abaixo? Sobe esse numero — senao
+// o banco publicado nao roda a mudanca (ele so confere a versao).
+const VERSAO = 4;
+
+// Devolve true quando rodou a criacao/migracao (banco novo ou versao velha).
+// No dia a dia e uma consulta so, em vez de ~6 idas ao banco a cada vez que
+// o Worker acorda.
 export async function initDb() {
-  if (pronto) return;
+  if (pronto) return false;
+  try {
+    const v = await db.execute("SELECT versao FROM _schema LIMIT 1");
+    if (Number(v.rows[0]?.versao) === VERSAO) {
+      pronto = true;
+      return false;
+    }
+  } catch {}
   await db.batch([
     // Quem entra no app. papel decide o que cada um ve como "sua vez":
     // admin aprova e ve tudo, copy escreve e revisa, editor edita, trafego sobe.
@@ -145,6 +169,118 @@ export async function initDb() {
       criado_em TEXT DEFAULT (datetime('now'))
     )`,
 
+    // Cada passagem de etapa, gravada na hora e nunca alterada. As metas
+    // automaticas contam daqui: copy_id/editor_id sao os responsaveis NO
+    // MOMENTO da passagem, entao trocar o responsavel depois nao mexe na conta.
+    `CREATE TABLE IF NOT EXISTS passagens (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      producao_id INTEGER NOT NULL REFERENCES producoes(id),
+      de TEXT,
+      para TEXT NOT NULL,
+      usuario_id INTEGER REFERENCES usuarios(id),   -- quem moveu
+      copy_id INTEGER,
+      editor_id INTEGER,
+      criado_em TEXT DEFAULT (datetime('now'))
+    )`,
+
+    // Metas da equipe (painel /admin). tipo 'automatica' conta pela esteira
+    // (metrica diz o que contar); 'manual' o admin atualiza o numero.
+    `CREATE TABLE IF NOT EXISTS metas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+      titulo TEXT NOT NULL,
+      descricao TEXT,
+      tipo TEXT NOT NULL DEFAULT 'automatica',   -- automatica | manual
+      metrica TEXT,                              -- ver lib/metas.ts
+      alvo INTEGER NOT NULL DEFAULT 1,
+      periodo TEXT NOT NULL DEFAULT 'semana',    -- semana | mes | avulsa
+      prazo TEXT,                                -- YYYY-MM-DD
+      progresso INTEGER DEFAULT 0,               -- manual avulsa
+      status TEXT DEFAULT 'aberta',              -- aberta | concluida
+      concluida_em TEXT,
+      criado_por INTEGER REFERENCES usuarios(id),
+      criado_em TEXT DEFAULT (datetime('now'))
+    )`,
+
+    // Um registro por periodo de meta semanal/mensal. O periodo atual guarda
+    // o numero da meta manual; periodo fechado vira historico congelado.
+    `CREATE TABLE IF NOT EXISTS metas_periodos (
+      meta_id INTEGER NOT NULL REFERENCES metas(id),
+      inicio TEXT NOT NULL,                      -- YYYY-MM-DD (Sao Paulo)
+      alvo INTEGER NOT NULL,
+      feito INTEGER NOT NULL DEFAULT 0,
+      fechado INTEGER DEFAULT 0,
+      PRIMARY KEY (meta_id, inicio)
+    )`,
+
+    // Trabalho avulso, fora dos criativos (os criativos vivem na esteira).
+    `CREATE TABLE IF NOT EXISTS tarefas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+      titulo TEXT NOT NULL,
+      descricao TEXT,
+      status TEXT DEFAULT 'a_fazer',             -- a_fazer | fazendo | aprovacao | concluida
+      prazo TEXT,
+      criado_por INTEGER REFERENCES usuarios(id),
+      criado_em TEXT DEFAULT (datetime('now')),
+      atualizado_em TEXT DEFAULT (datetime('now'))
+    )`,
+
+    // Ofertas: a sigla entra no nome canonico (EXPERT_OFERTA_COPY_NNN) e o
+    // contador e o sequencial de cada oferta. expert_id nulo = de todos.
+    `CREATE TABLE IF NOT EXISTS ofertas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nome TEXT NOT NULL,
+      sigla TEXT NOT NULL,
+      expert_id INTEGER REFERENCES usuarios(id),
+      contador INTEGER NOT NULL DEFAULT 0,
+      ativa INTEGER DEFAULT 1,
+      criado_em TEXT DEFAULT (datetime('now'))
+    )`,
+
+    // Rotulos do lote (Leva 1, Teste, VSL...). Nao entram no nome.
+    `CREATE TABLE IF NOT EXISTS tags (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nome TEXT UNIQUE NOT NULL,
+      cor TEXT NOT NULL DEFAULT 'cinza'
+    )`,
+    `CREATE TABLE IF NOT EXISTS producao_tags (
+      producao_id INTEGER NOT NULL REFERENCES producoes(id),
+      tag_id INTEGER NOT NULL REFERENCES tags(id),
+      PRIMARY KEY (producao_id, tag_id)
+    )`,
+
+    // Relatorio do trafego por expert e por dia (tela Testes do trafego).
+    `CREATE TABLE IF NOT EXISTS relatorios (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      expert_id INTEGER NOT NULL REFERENCES usuarios(id),
+      dia TEXT NOT NULL,                         -- YYYY-MM-DD
+      roi REAL,
+      vendas INTEGER,
+      criativos TEXT,                            -- uma linha por criativo: CODIGO ROI
+      testes TEXT,                               -- o que o trafego esta testando
+      usuario_id INTEGER REFERENCES usuarios(id),
+      criado_em TEXT DEFAULT (datetime('now')),
+      UNIQUE (expert_id, dia)
+    )`,
+
+    // Vega: conversas de cada pessoa. mensagens guarda o historico inteiro no
+    // formato da API (blocos de pensamento inclusos, sem mexer). pendente e a
+    // alteracao esperando o "Permitir"; liberadas sao as "sempre nesta conversa".
+    `CREATE TABLE IF NOT EXISTS vega_conversas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+      titulo TEXT NOT NULL,
+      mensagens TEXT NOT NULL DEFAULT '[]',
+      pendente TEXT,
+      liberadas TEXT NOT NULL DEFAULT '[]',
+      criado_em TEXT DEFAULT (datetime('now')),
+      atualizado_em TEXT DEFAULT (datetime('now'))
+    )`,
+
+    `CREATE INDEX IF NOT EXISTS idx_pass_para ON passagens(para, criado_em)`,
+    `CREATE INDEX IF NOT EXISTS idx_metas_user ON metas(usuario_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_tarefas_user ON tarefas(usuario_id)`,
     `CREATE INDEX IF NOT EXISTS idx_prod_status ON producoes(status)`,
     `CREATE INDEX IF NOT EXISTS idx_mat_prod ON materiais(producao_id)`,
     `CREATE INDEX IF NOT EXISTS idx_com_prod ON comentarios(producao_id)`,
@@ -159,10 +295,72 @@ export async function initDb() {
     "referencia_img TEXT",
     // recado pra quem grava (tom, cenario, roupa), separado do briefing de edicao
     "briefing_gravacao TEXT",
+    // Versao Orbita: quem grava (expert), oferta + sequencial do nome
+    // canonico, prioridade, caminho (etapas ligadas) e links do lote.
+    "expert_id INTEGER",
+    "oferta_id INTEGER",
+    "numero INTEGER",
+    "prioridade TEXT DEFAULT 'media'",
+    "formato_gravacao TEXT",
+    "passa_copy INTEGER DEFAULT 1",
+    "passa_gravacao INTEGER DEFAULT 1",
+    "doc_url TEXT",
+    "pasta_bruto TEXT",
+    "pasta_entrega TEXT",
+    "etapa_em TEXT",
+    "status_antes TEXT",
+    "lote TEXT",
   ]) {
     try {
       await db.execute(`ALTER TABLE producoes ADD COLUMN ${col}`);
     } catch {}
   }
+  // Sigla (JHON, KEV...) aparece no nome canonico e nos cards; cor pinta a
+  // borda dos cards do expert.
+  // anthropic_chave: a chave de API de cada pessoa pra Vega, cifrada.
+  for (const col of ["sigla TEXT", "cor TEXT", "anthropic_chave TEXT"]) {
+    try {
+      await db.execute(`ALTER TABLE usuarios ADD COLUMN ${col}`);
+    } catch {}
+  }
+  await db.batch([
+    "UPDATE producoes SET etapa_em = COALESCE(etapa_em, atualizado_em)",
+  ]);
+  await historicoDePassagens();
+  await db.batch([
+    "CREATE TABLE IF NOT EXISTS _schema (versao INTEGER NOT NULL)",
+    "DELETE FROM _schema",
+    `INSERT INTO _schema (versao) VALUES (${VERSAO})`,
+  ]);
   pronto = true;
+  return true;
+}
+
+// Uma vez so: as passagens de antes desta tabela existir estao no historico
+// da producao ("moveu de “X” para “Y”"). Copia pra passagens, com os
+// responsaveis de hoje (e o melhor que da pra saber do passado).
+async function historicoDePassagens() {
+  const ja = await db.execute("SELECT 1 FROM passagens LIMIT 1");
+  if (ja.rows.length) return;
+  const { STATUS } = await import("./fluxo");
+  const porRotulo = new Map<string, string>(Object.entries(STATUS).map(([k, v]) => [v.rotulo, k]));
+  const r = await db.execute(
+    `SELECT c.producao_id, c.usuario_id, c.texto, c.criado_em, p.copy_id, p.editor_id
+     FROM comentarios c JOIN producoes p ON p.id = c.producao_id
+     WHERE c.tipo = 'evento' AND c.texto LIKE 'moveu de %' ORDER BY c.id`
+  );
+  const q = (v: unknown) => (v === null || v === undefined ? "NULL" : typeof v === "number" ? String(v) : `'${String(v).replace(/'/g, "''")}'`);
+  const linhas: string[] = [];
+  for (const l of r.rows) {
+    const m = String(l.texto).match(/^moveu de “(.+)” para “(.+)”$/);
+    const de = m && porRotulo.get(m[1]);
+    const para = m && porRotulo.get(m[2]);
+    if (!de || !para) continue;
+    linhas.push(
+      `INSERT INTO passagens (producao_id, de, para, usuario_id, copy_id, editor_id, criado_em) VALUES (${[
+        l.producao_id, de, para, l.usuario_id, l.copy_id, l.editor_id, l.criado_em,
+      ].map(q).join(", ")})`
+    );
+  }
+  for (let i = 0; i < linhas.length; i += 50) await db.batch(linhas.slice(i, i + 50));
 }

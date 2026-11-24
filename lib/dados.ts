@@ -1,36 +1,6 @@
 import { db } from "./db";
-
-export type Producao = {
-  id: number;
-  codigo: string;
-  angulo: string;
-  lado: string;
-  tipo: string;
-  formato: string | null;
-  oferta: string;
-  hook: string | null;
-  copy: string | null;
-  briefing: string | null;
-  briefing_gravacao: string | null;
-  referencia_url: string | null;
-  referencia_img: string | null;
-  ajuste_de: string | null;
-  prazo: string | null;
-  status: string;
-  copy_id: number | null;
-  editor_id: number | null;
-  resultado: string | null;
-  resultado_nota: string | null;
-  aprovado_em: string | null;
-  no_ar_em: string | null;
-  criado_em: string;
-  atualizado_em: string;
-  copy_nome: string | null;
-  editor_nome: string | null;
-  versoes: number;
-  brutos: number;
-  ultima_versao: string | null;
-};
+import type { Producao, Tag, Oferta } from "./producao-base";
+export * from "./producao-base";
 
 export type Material = {
   id: number;
@@ -44,6 +14,7 @@ export type Material = {
 
 export type Comentario = {
   id: number;
+  usuario_id: number | null;
   tipo: "comentario" | "ajuste" | "evento";
   texto: string;
   autor: string | null;
@@ -51,18 +22,29 @@ export type Comentario = {
   criado_em: string;
 };
 
-export type Usuario = { id: number; login: string; nome: string; papel: string; ativo: number; criado_em: string };
+export type Usuario = { id: number; login: string; nome: string; papel: string; ativo: number; criado_em: string; sigla: string | null; cor: string | null };
 
 const CAMPOS = `
   p.*,
   uc.nome AS copy_nome,
   ue.nome AS editor_nome,
+  uc.sigla AS copy_sigla,
+  ue.sigla AS editor_sigla,
+  ux.nome AS expert_nome,
+  ux.sigla AS expert_sigla,
+  ux.cor AS expert_cor,
+  o.nome AS oferta_nome,
+  o.sigla AS oferta_sigla,
+  (SELECT GROUP_CONCAT(t.nome || '|' || t.cor, ';;') FROM producao_tags pt JOIN tags t ON t.id = pt.tag_id WHERE pt.producao_id = p.id) AS tags_txt,
+  CAST((julianday('now') - julianday(COALESCE(p.etapa_em, p.atualizado_em))) * 24 AS INTEGER) AS horas_etapa,
   (SELECT COUNT(*) FROM materiais m WHERE m.producao_id = p.id AND m.tipo = 'versao') AS versoes,
   (SELECT COUNT(*) FROM materiais m WHERE m.producao_id = p.id AND m.tipo = 'bruto') AS brutos,
   (SELECT url FROM materiais m WHERE m.producao_id = p.id AND m.tipo = 'versao' ORDER BY m.versao DESC, m.id DESC LIMIT 1) AS ultima_versao
   FROM producoes p
   LEFT JOIN usuarios uc ON uc.id = p.copy_id
   LEFT JOIN usuarios ue ON ue.id = p.editor_id
+  LEFT JOIN usuarios ux ON ux.id = p.expert_id
+  LEFT JOIN ofertas o ON o.id = p.oferta_id
 `;
 
 type Filtro = {
@@ -94,23 +76,23 @@ export async function producoes(f: Filtro = {}) {
     args.push(f.tipo);
   }
   if (f.pessoa) {
-    onde.push("(p.copy_id = ? OR p.editor_id = ?)");
-    args.push(f.pessoa, f.pessoa);
+    onde.push("(p.copy_id = ? OR p.editor_id = ? OR p.expert_id = ?)");
+    args.push(f.pessoa, f.pessoa, f.pessoa);
   }
   if (f.resultado) {
     onde.push("p.resultado = ?");
     args.push(f.resultado);
   }
   if (f.busca) {
-    onde.push("(p.codigo LIKE ? OR p.angulo LIKE ? OR p.hook LIKE ? OR p.copy LIKE ?)");
+    onde.push("(p.codigo LIKE ? OR p.angulo LIKE ? OR p.hook LIKE ? OR p.copy LIKE ? OR uc.nome LIKE ? OR ue.nome LIKE ? OR ux.nome LIKE ?)");
     const q = `%${f.busca}%`;
-    args.push(q, q, q, q);
+    args.push(q, q, q, q, q, q, q);
   }
   if (f.comVersao) onde.push("EXISTS (SELECT 1 FROM materiais m WHERE m.producao_id = p.id AND m.tipo = 'versao')");
   if (f.comBruto) onde.push("EXISTS (SELECT 1 FROM materiais m WHERE m.producao_id = p.id AND m.tipo = 'bruto')");
 
   const r = await db.execute({
-    sql: `SELECT ${CAMPOS} WHERE ${onde.join(" AND ")} ORDER BY p.atualizado_em DESC, p.id DESC LIMIT 500`,
+    sql: `SELECT ${CAMPOS} WHERE ${onde.join(" AND ")} ORDER BY p.atualizado_em DESC, p.id DESC LIMIT 1000`,
     args,
   });
   return r.rows as unknown as Producao[];
@@ -133,7 +115,7 @@ export async function materiais(id: number) {
 
 export async function comentarios(id: number) {
   const r = await db.execute({
-    sql: `SELECT c.id, c.tipo, c.texto, c.criado_em, u.nome AS autor, u.papel
+    sql: `SELECT c.id, c.usuario_id, c.tipo, c.texto, c.criado_em, u.nome AS autor, u.papel
           FROM comentarios c LEFT JOIN usuarios u ON u.id = c.usuario_id
           WHERE c.producao_id = ? ORDER BY c.id`,
     args: [id],
@@ -143,7 +125,7 @@ export async function comentarios(id: number) {
 
 export async function usuarios(soAtivos = false) {
   const r = await db.execute(
-    `SELECT id, login, nome, papel, ativo, criado_em FROM usuarios ${soAtivos ? "WHERE ativo = 1" : ""} ORDER BY ativo DESC, papel, nome`
+    `SELECT id, login, nome, papel, ativo, criado_em, sigla, cor FROM usuarios ${soAtivos ? "WHERE ativo = 1" : ""} ORDER BY ativo DESC, papel, nome`
   );
   return r.rows as unknown as Usuario[];
 }
@@ -221,4 +203,98 @@ export async function ajustesDe(ids: number[]) {
     m.set(l.producao_id, { texto: l.texto, autor: l.autor });
   }
   return m;
+}
+
+export async function tags() {
+  const r = await db.execute("SELECT id, nome, cor FROM tags ORDER BY nome");
+  return r.rows as unknown as Tag[];
+}
+
+export async function ofertas() {
+  const r = await db.execute("SELECT id, nome, sigla, expert_id, contador FROM ofertas WHERE ativa = 1 ORDER BY nome");
+  return r.rows as unknown as Oferta[];
+}
+
+export type Relatorio = {
+  id: number;
+  expert_id: number;
+  dia: string;
+  roi: number | null;
+  vendas: number | null;
+  criativos: string | null;
+  testes: string | null;
+  autor: string | null;
+};
+
+export async function relatorios(desde: string) {
+  const r = await db.execute({
+    sql: `SELECT r.*, u.nome AS autor FROM relatorios r LEFT JOIN usuarios u ON u.id = r.usuario_id
+          WHERE r.dia >= ? ORDER BY r.dia DESC`,
+    args: [desde],
+  });
+  return r.rows as unknown as Relatorio[];
+}
+
+
+// Quantas producoes estao na vez de cada um (badge da Area no menu).
+export async function contaMinhaVez(eu: { id: number; papel: import("./fluxo").Papel }) {
+  const { eMinhaVez } = await import("./fluxo");
+  const r = await db.execute(
+    "SELECT status, copy_id, editor_id, expert_id, ajuste_de FROM producoes WHERE status NOT IN ('arquivado', 'no_ar', 'bloqueado')"
+  );
+  return (r.rows as unknown as { status: string; copy_id: number | null; editor_id: number | null; expert_id: number | null }[]).filter((p) =>
+    eMinhaVez(p, eu)
+  ).length;
+}
+
+export async function siglaDe(id: number) {
+  const r = await db.execute({ sql: "SELECT sigla, nome FROM usuarios WHERE id = ?", args: [id] });
+  const l = r.rows[0] as { sigla: string | null; nome: string } | undefined;
+  return (l?.sigla || l?.nome?.slice(0, 3) || "?").toUpperCase();
+}
+
+export type Video = {
+  id: number;
+  producao_id: number;
+  tipo: "bruto" | "versao";
+  url: string;
+  rotulo: string | null;
+  versao: number | null;
+  criado_em: string;
+  codigo: string;
+  status: string;
+  lado: string;
+  ptipo: string;
+  expert_nome: string | null;
+  expert_sigla: string | null;
+  expert_id: number | null;
+  editor_sigla: string | null;
+  oferta_sigla: string | null;
+  numero: number | null;
+};
+
+// Cada video do acervo (o bruto ou cada versao editada) com a producao dele.
+export async function videos(tipo: "bruto" | "versao") {
+  const r = await db.execute({
+    sql: `SELECT m.id, m.producao_id, m.tipo, m.url, m.rotulo, m.versao, m.criado_em,
+            p.codigo, p.status, p.lado, p.tipo AS ptipo, p.expert_id, p.numero,
+            ux.nome AS expert_nome, ux.sigla AS expert_sigla, ue.sigla AS editor_sigla, o.sigla AS oferta_sigla
+          FROM materiais m JOIN producoes p ON p.id = m.producao_id
+          LEFT JOIN usuarios ux ON ux.id = p.expert_id
+          LEFT JOIN usuarios ue ON ue.id = p.editor_id
+          LEFT JOIN ofertas o ON o.id = p.oferta_id
+          WHERE m.tipo = ? AND p.status != 'arquivado'
+          ORDER BY m.id DESC LIMIT 2000`,
+    args: [tipo],
+  });
+  return r.rows as unknown as Video[];
+}
+
+export async function contaVideos() {
+  const r = await db.execute(
+    "SELECT m.tipo, COUNT(*) AS n FROM materiais m JOIN producoes p ON p.id = m.producao_id WHERE p.status != 'arquivado' GROUP BY m.tipo"
+  );
+  const c = { bruto: 0, versao: 0 };
+  for (const l of r.rows) c[String(l.tipo) as "bruto" | "versao"] = Number(l.n);
+  return c;
 }

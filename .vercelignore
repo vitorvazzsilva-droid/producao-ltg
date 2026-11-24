@@ -1,0 +1,8 @@
+local.db*
+.env.local
+.env.local.fora
+.open-next
+.wrangler
+link-bonito
+node_modules
+.next

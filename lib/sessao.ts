@@ -8,9 +8,14 @@ export type Eu = { id: number; login: string; nome: string; papel: Papel };
 
 // Primeiro acesso: sem ninguem no banco, nasce o admin "vitor" com a senha
 // do ADMIN_PASSWORD. Daqui pra frente a equipe e criada pela tela Equipe.
+let semeado = false;
 async function semearAdmin() {
+  if (semeado) return;
   const r = await db.execute("SELECT COUNT(*) AS n FROM usuarios");
-  if (Number(r.rows[0].n) > 0) return;
+  if (Number(r.rows[0].n) > 0) {
+    semeado = true;
+    return;
+  }
   const senha = process.env.ADMIN_PASSWORD;
   if (!senha) return;
   const sal = novoSal();
@@ -20,9 +25,9 @@ async function semearAdmin() {
   });
 }
 
+// O admin so precisa ser semeado quando o banco acabou de ser criado.
 export async function preparar() {
-  await initDb();
-  await semearAdmin();
+  if (await initDb()) await semearAdmin();
 }
 
 export async function euOpcional(): Promise<Eu | null> {

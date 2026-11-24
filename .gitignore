@@ -7,3 +7,5 @@ local.db*
 .wrangler
 .dev.vars
 next-env.d.ts
+.vercel
+.env*

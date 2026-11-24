@@ -3,6 +3,7 @@ import { eu as quemSou } from "@/lib/sessao";
 import { avisos, quando } from "@/lib/dados";
 import { lerAvisos } from "../acoes";
 import { Vazio } from "../pecas";
+import { Enviar } from "../enviar";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Avisos" };
@@ -21,7 +22,7 @@ export default async function Avisos() {
         </div>
         {novos > 0 && (
           <form action={lerAvisos}>
-            <button className="btn sec-btn">Marcar tudo como lido</button>
+            <Enviar className="btn sec-btn">Marcar tudo como lido</Enviar>
           </form>
         )}
       </div>

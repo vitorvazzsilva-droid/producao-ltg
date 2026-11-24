@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { eu as quemSou } from "@/lib/sessao";
-import { producao, materiais, comentarios, usuarios, quando, hojeSP } from "@/lib/dados";
-import { passosPara, eMinhaVez, podeEditarCopy, LADOS, TIPOS, RESULTADOS, PAPEIS, type Papel } from "@/lib/fluxo";
+import { producao, materiais, comentarios, usuarios, quando, hojeSP, tags, tagsDe } from "@/lib/dados";
+import { Chip, prioridadeDe } from "../../card";
+import { passosPara, eMinhaVez, podeEditarCopy, podeExcluir, grupoDe, LADOS, TIPOS, RESULTADOS, PAPEIS, PRIORIDADES, FORMATOS_GRAVACAO, type Papel } from "@/lib/fluxo";
 import { player, baixar } from "@/lib/midia";
 import { addMaterial, marcarResultado, mudarEtapa, removerMaterial, salvarCopy, salvarFicha } from "../../acoes";
 import { Form } from "../../form";
@@ -10,6 +11,7 @@ import { Icone } from "../../icones";
 import { Lado, Pill, Resultado } from "../../pecas";
 import { Copiar } from "./copiar";
 import { Comentar } from "./comentar";
+import { Excluir } from "../../excluir";
 
 // Realca @usuario dentro do comentario.
 function ComMencao({ texto }: { texto: string }) {
@@ -31,8 +33,11 @@ function ComMencao({ texto }: { texto: string }) {
 export const dynamic = "force-dynamic";
 
 // A trilha do topo volta pra area onde a producao esta agora.
-const AREA_DE: Record<string, string> = { copy: "/copys", gravar: "/copys?aba=gravar", pronta: "/gravados", edicao: "/gravados?aba=editando", ajustes: "/copys", revisao: "/editados", aprovado: "/editados?aba=aprovados", no_ar: "/editados?aba=aprovados" };
-const ROT_AREA: Record<string, string> = { copy: "Copys", gravar: "Copys", pronta: "Gravados", edicao: "Gravados", ajustes: "Copys", revisao: "Editados", aprovado: "Editados", no_ar: "Editados" };
+// A trilha do topo volta pra tela do grupo onde a producao esta agora.
+const trilha = (s: string) => {
+  const g = grupoDe(s)?.id;
+  return g === "copy" ? { href: "/copy", rot: "Copy" } : g === "trafego" ? { href: "/trafego", rot: "Tráfego" } : { href: "/esteira", rot: "Esteira" };
+};
 
 function Player({ url }: { url: string }) {
   const p = player(url);
@@ -55,7 +60,7 @@ export default async function Detalhe({ params }: { params: Promise<{ id: string
   const id = Number((await params).id);
   const p = await producao(id);
   if (!p) notFound();
-  const [mats, conversa, gente] = await Promise.all([materiais(id), comentarios(id), usuarios(true)]);
+  const [mats, conversa, gente, todasTags] = await Promise.all([materiais(id), comentarios(id), usuarios(true), tags()]);
 
   const versoes = mats.filter((m) => m.tipo === "versao");
   const brutos = mats.filter((m) => m.tipo === "bruto");
@@ -74,9 +79,7 @@ export default async function Detalhe({ params }: { params: Promise<{ id: string
     <div className="pagina larga">
       <div className="det-cab">
         <div className="trilha">
-          <Link href={p.status === "ajustes" && p.ajuste_de !== "copy" ? "/gravados?aba=editando" : AREA_DE[p.status] ?? "/copys"}>
-            {p.status === "ajustes" && p.ajuste_de !== "copy" ? "Gravados" : ROT_AREA[p.status] ?? "Copys"}
-          </Link> <span>›</span> <Pill status={p.status} />
+          <Link href={trilha(p.status).href}>{trilha(p.status).rot}</Link> <span>›</span> <Pill status={p.status} />
           {minhaVez && <span className="sua-vez">sua vez</span>}
         </div>
         <h1 className="mono det-cod">
@@ -85,7 +88,7 @@ export default async function Detalhe({ params }: { params: Promise<{ id: string
         <div className="det-resumo">
           <Lado lado={p.lado} />
           <span>
-            Ângulo <b>{p.angulo}</b>
+            Expert <b>{p.expert_nome ?? "—"}</b>
           </span>
           <span>
             Copy <b>{p.copy_nome ?? "—"}</b>
@@ -110,7 +113,7 @@ export default async function Detalhe({ params }: { params: Promise<{ id: string
         </div>
       ))}
 
-      {passos.length > 0 && (
+      {(passos.length > 0 || podeExcluir(p, eu)) && (
         <div className="acoes">
           {passos.map((s) =>
             s.pedeTexto ? (
@@ -130,6 +133,18 @@ export default async function Detalhe({ params }: { params: Promise<{ id: string
                 <button className={"btn" + (s.principal ? "" : " sec-btn")}>{s.rotulo}</button>
               </Form>
             )
+          )}
+          {podeExcluir(p, eu) && (
+            <span className="excluir-fim">
+              <Excluir
+                qual="producao"
+                id={p.id}
+                voltar="/"
+                grande
+                rotulo="Excluir criativo"
+                aviso="Apaga a copy, os vídeos, comentários e histórico. Não tem volta."
+              />
+            </span>
           )}
         </div>
       )}
@@ -291,6 +306,7 @@ export default async function Detalhe({ params }: { params: Promise<{ id: string
                     <span className="meta">{c.papel ? PAPEIS[c.papel as Papel] : ""}</span>
                     {c.tipo === "ajuste" && <span className="pill st-ajustes">o que precisa mudar</span>}
                     <span className="meta">{quando(c.criado_em)}</span>
+                    {(eu.papel === "admin" || c.usuario_id === eu.id) && <Excluir qual="comentario" id={c.id} rotulo="apagar" />}
                   </div>
                   <p>
                     <ComMencao texto={c.texto} />
@@ -356,9 +372,18 @@ export default async function Detalhe({ params }: { params: Promise<{ id: string
                 <Lado lado={p.lado} />
               </dd>
               <dt>Oferta</dt>
-              <dd>{p.oferta}</dd>
-              <dt>Ângulo</dt>
-              <dd>{p.angulo}</dd>
+              <dd>{p.oferta_nome ?? p.oferta}</dd>
+              <dt>Expert</dt>
+              <dd>{p.expert_nome ?? "—"}</dd>
+              <dt>Prioridade</dt>
+              <dd>
+                {PRIORIDADES[prioridadeDe(p)]}
+                {prioridadeDe(p) !== (p.prioridade ?? "media") && <span className="meta"> (subiu com o tempo parado)</span>}
+              </dd>
+              <dt>Tags</dt>
+              <dd className="ce-chips">{tagsDe(p).length ? tagsDe(p).map((t) => <Chip key={t.nome} nome={t.nome} cor={t.cor} />) : "—"}</dd>
+              <dt>Gravação</dt>
+              <dd>{p.formato_gravacao ? FORMATOS_GRAVACAO[p.formato_gravacao as keyof typeof FORMATOS_GRAVACAO] : "—"}</dd>
               <dt>Tipo</dt>
               <dd>{TIPOS[p.tipo as keyof typeof TIPOS]}</dd>
               <dt>Formato</dt>
@@ -371,6 +396,16 @@ export default async function Detalhe({ params }: { params: Promise<{ id: string
               <dd className={p.prazo && p.prazo < hoje && !["aprovado", "no_ar"].includes(p.status) ? "vermelho" : ""}>
                 {p.prazo ? `${p.prazo.slice(8, 10)}/${p.prazo.slice(5, 7)}` : "—"}
               </dd>
+              {(p.doc_url || p.pasta_bruto || p.pasta_entrega) && (
+                <>
+                  <dt>Links</dt>
+                  <dd className="links-lote">
+                    {p.doc_url && <a href={p.doc_url} target="_blank" rel="noreferrer" className="link-roxo">Documento</a>}
+                    {p.pasta_bruto && <a href={p.pasta_bruto} target="_blank" rel="noreferrer" className="link-roxo">Pasta do bruto</a>}
+                    {p.pasta_entrega && <a href={p.pasta_entrega} target="_blank" rel="noreferrer" className="link-roxo">Pasta de entrega</a>}
+                  </dd>
+                </>
+              )}
               {p.aprovado_em && (
                 <>
                   <dt>Aprovado</dt>
@@ -386,9 +421,54 @@ export default async function Detalhe({ params }: { params: Promise<{ id: string
               <summary>Editar ficha</summary>
               <Form acao={salvarFicha} className="form-ficha" feito="Ficha salva">
                 <input type="hidden" name="id" value={p.id} />
+                <input type="hidden" name="tags_enviadas" value="1" />
+                <div className="duas">
+                  <label>
+                    Expert
+                    <select name="expert_id" defaultValue={p.expert_id ?? ""}>
+                      <option value="">—</option>
+                      {gente
+                        .filter((u) => u.papel === "gravacao")
+                        .map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.nome}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  <label>
+                    Prioridade
+                    <select name="prioridade" defaultValue={p.prioridade ?? "media"}>
+                      {Object.entries(PRIORIDADES).map(([k, v]) => (
+                        <option key={k} value={k}>
+                          {v}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div className="campo">
+                  <span>Tags</span>
+                  <div className="tags-op">
+                    {todasTags.map((t) => (
+                      <label key={t.id} className="tag-op tag-ck">
+                        <input type="checkbox" name="tag" value={t.id} defaultChecked={tagsDe(p).some((x) => x.nome === t.nome)} />
+                        <i className={`pt-${t.cor}`} />
+                        {t.nome}
+                      </label>
+                    ))}
+                  </div>
+                </div>
                 <label>
-                  Ângulo
-                  <input name="angulo" defaultValue={p.angulo} required />
+                  Formato da gravação
+                  <select name="formato_gravacao" defaultValue={p.formato_gravacao ?? ""}>
+                    <option value="">—</option>
+                    {Object.entries(FORMATOS_GRAVACAO).map(([k, v]) => (
+                      <option key={k} value={k}>
+                        {v}
+                      </option>
+                    ))}
+                  </select>
                 </label>
                 <div className="duas">
                   <label>
@@ -456,6 +536,20 @@ export default async function Detalhe({ params }: { params: Promise<{ id: string
                   Prazo
                   <input name="prazo" type="date" defaultValue={p.prazo ?? ""} />
                 </label>
+                <label>
+                  Link do documento
+                  <input name="doc_url" type="url" defaultValue={p.doc_url ?? ""} placeholder="https://…" />
+                </label>
+                <div className="duas">
+                  <label>
+                    Pasta do material bruto
+                    <input name="pasta_bruto" type="url" defaultValue={p.pasta_bruto ?? ""} placeholder="https://…" />
+                  </label>
+                  <label>
+                    Pasta de entrega
+                    <input name="pasta_entrega" type="url" defaultValue={p.pasta_entrega ?? ""} placeholder="https://…" />
+                  </label>
+                </div>
                 <button className="btn">Salvar ficha</button>
               </Form>
             </details>

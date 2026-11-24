@@ -1,0 +1,6 @@
+{
+  "name": "esteiraltg",
+  "pages_build_output_dir": "./static",
+  "compatibility_date": "2026-11-10",
+  "services": [{ "binding": "APP", "service": "producao-ltg" }]
+}

@@ -1,16 +1,19 @@
 "use client";
 
 import { useActionState, useState, useTransition } from "react";
-import { ativarUsuario, criarUsuario, novaSenha } from "../acoes";
+import { ativarUsuario, criarUsuario, editarUsuario, novaSenha } from "../acoes";
+import { Form } from "../form";
 import { PAPEIS } from "@/lib/fluxo";
 
 type Res = { erro?: string; ok?: { nome: string; login: string; senha: string } } | null;
+
+const LINK_LOGIN = "https://esteiraltg.pages.dev/login";
 
 // Mensagem pronta pra colar no WhatsApp da pessoa.
 function Credencial({ ok }: { ok: NonNullable<Res>["ok"] }) {
   const [copiado, setCopiado] = useState(false);
   if (!ok) return null;
-  const texto = `Acesso à Produção LTG\n${location.origin}\nUsuário: ${ok.login}\nSenha: ${ok.senha}`;
+  const texto = `Acesso à Produção LTG\n${LINK_LOGIN}\nUsuário: ${ok.login}\nSenha: ${ok.senha}`;
   return (
     <div className="credencial">
       <b>Acesso de {ok.nome} — só aparece agora</b>
@@ -43,7 +46,7 @@ export function NovoMembro() {
         </label>
         <label>
           Usuário <small>opcional</small>
-          <input name="login" placeholder="primeiro nome" autoCapitalize="none" />
+          <input name="login" placeholder="primeiro nome ou e-mail" autoCapitalize="none" />
         </label>
         <label>
           Função
@@ -56,7 +59,7 @@ export function NovoMembro() {
           </select>
         </label>
       </div>
-      <button className="btn" disabled={pend}>
+      <button className={"btn" + (pend ? " carregando" : "")} disabled={pend}>
         Criar acesso
       </button>
       {r?.erro && <p className="erro">{r.erro}</p>}
@@ -70,7 +73,7 @@ export function NovaSenha({ id }: { id: number }) {
   return (
     <form action={acao} className="inline">
       <input type="hidden" name="id" value={id} />
-      <button className="lk" disabled={pend}>
+      <button className={"lk" + (pend ? " carregando" : "")} disabled={pend}>
         nova senha
       </button>
       {r?.ok && (
@@ -119,5 +122,55 @@ export function Acesso({ id, ativo }: { id: number; ativo: boolean }) {
       )}
       {erro && <span className="erro">{erro}</span>}
     </span>
+  );
+}
+
+// Trocar nome e usuario (o login que a pessoa digita). A senha nao muda.
+export function EditarMembro({ id, nome, login, sigla, cor }: { id: number; nome: string; login: string; sigla?: string | null; cor?: string | null }) {
+  const [aberto, setAberto] = useState(false);
+  if (!aberto)
+    return (
+      <button className="lk" onClick={() => setAberto(true)}>
+        editar
+      </button>
+    );
+  return (
+    <div className="editar-membro">
+      <Form
+        acao={async (f) => {
+          const r = await editarUsuario(f);
+          if (!r?.erro) setAberto(false);
+          return r;
+        }}
+      >
+        <input type="hidden" name="id" value={id} />
+        <div className="duas">
+          <label>
+            Nome
+            <input name="nome" defaultValue={nome} required />
+          </label>
+          <label>
+            Usuário
+            <input name="login" defaultValue={login} required autoCapitalize="none" />
+          </label>
+        </div>
+        <div className="duas" style={{ marginTop: 8 }}>
+          <label>
+            Sigla <small>entra no nome canônico e nos cards (ex.: JHON, KEV)</small>
+            <input name="sigla" defaultValue={sigla ?? ""} maxLength={5} style={{ textTransform: "uppercase" }} />
+          </label>
+          <label>
+            Cor <small>borda dos cards do expert</small>
+            <input name="cor" type="color" defaultValue={cor ?? "#6a3fdc"} />
+          </label>
+        </div>
+        <div className="inline" style={{ marginTop: 8 }}>
+          <button className="btn mini">Salvar</button>
+          <button type="button" className="lk lk-x" onClick={() => setAberto(false)}>
+            cancelar
+          </button>
+        </div>
+      </Form>
+    </div>
   );
 }
